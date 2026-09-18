@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+
+# Local data caches / large files -- keep raw data out of git history
+/data/raw/
+*.csv
+*.parquet
+*.h5
+
+# Results and logs
+/results/
+/logs/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
