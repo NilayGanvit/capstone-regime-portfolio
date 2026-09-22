@@ -1,24 +1,13 @@
 __pycache__/
-*.py[cod]
-.venv/
+*.pyc
+.pytest_cache/
 venv/
-.ipynb_checkpoints/
+.venv/
 *.egg-info/
-build/
-dist/
 
-# Local data caches / large files -- keep raw data out of git history
-/data/raw/
-*.csv
-*.parquet
-*.h5
-
-# Results and logs
-/results/
-/logs/
-*.log
-
-# OS / editor
-.DS_Store
-.idea/
-.vscode/
+# Real price data is not committed -- each collaborator pulls their own
+# copy into data/raw/ per README.md; only the synthetic-data smoke-test
+# outputs (checked in deliberately as evidence of temporary results) are
+# tracked.
+data/raw/*
+!data/raw/.gitkeep

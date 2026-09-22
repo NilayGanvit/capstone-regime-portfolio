@@ -1,14 +1,6 @@
-numpy
-pandas
-scipy
-scikit-learn
-statsmodels
-hmmlearn
-torch
-cvxpy
-matplotlib
-pytest
-
-# Optional stretch goal (fully differentiable risk-budgeting layer,
-# following Uysal, Li & Mulvey 2021) -- uncomment if pursued:
-# cvxpylayers
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+scikit-learn>=1.3
+torch>=2.0        # required only for src/allocation_lstm.py
+pytest>=7.0
