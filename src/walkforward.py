@@ -127,14 +127,17 @@ def run_walk_forward(
         log_l0_history.append(log_l0)
         log_l1_history.append(log_l1)
 
-        # Filter through today's observation, predict for tomorrow (used
-        # for the *next* allocation/scoring step, not this one -- kept
-        # here only to mirror the pseudocode's stated order).
+        # Filter through today's observation (now realized), predict for
+        # tomorrow -- P(S_t+1 | F_t). This is the freshest regime signal
+        # available at the point the rebalance decision is made (today,
+        # for execution at tomorrow's open), unlike predicted_for_today
+        # (P(S_t | F_t-1)) above, which is one day stale by the time a
+        # same-day rebalance decision is taken.
         hist_incl_today = X[: abs_idx + 1]
-        _ = hmm.predicted_probabilities(hist_incl_today)[-1]
+        predicted_for_tomorrow = hmm.predicted_probabilities(hist_incl_today)[-1]
 
         if date in rebalance_dates:
-            regime_probs_now = predicted_for_today  # one-step-ahead, using F(t)
+            regime_probs_now = predicted_for_tomorrow  # one-step-ahead, using F(t)
 
             w_baseline = erc_baseline_weights(pooled_cov, shrinkage)
             w_regime = erc_regime_weights(state_covs, regime_probs_now, shrinkage)
