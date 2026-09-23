@@ -1,0 +1,5 @@
+spec,regime_effect_sharpe,reliability_effect_sharpe,erc_baseline_sharpe,erc_regime_sharpe,erc_blend_sharpe
+primary_3state,0.013,-0.014,0.498,0.511,0.497
+2state,-0.188,0.096,0.498,0.31,0.406
+no_vnq,-0.073,0.058,0.515,0.442,0.5
+no_hyg,-0.116,0.055,0.506,0.39,0.445

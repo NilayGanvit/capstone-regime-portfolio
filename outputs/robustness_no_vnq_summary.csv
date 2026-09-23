@@ -1,0 +1,5 @@
+config,sharpe,cagr,max_drawdown,sortino,calmar,avg_turnover,concentration_hhi
+erc_baseline,0.515,0.0388,-0.2763,0.64,0.14,0.0085,0.1434
+erc_regime,0.442,0.0332,-0.3215,0.536,0.103,0.0102,0.1364
+erc_blend,0.5,0.0371,-0.2935,0.619,0.126,0.01,0.1367
+equal_weight,0.439,0.0393,-0.3508,0.548,0.112,0.0095,0.1112
