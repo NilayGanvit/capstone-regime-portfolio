@@ -42,7 +42,7 @@ def test_walk_forward_runs_end_to_end_and_produces_valid_weights():
 
 def test_pi_history_length_matches_walk_forward_days():
     ds, _ = make_synthetic_universe(n_days=400, seed=5)
-    result = run_walk_forward(ds.returns, n_states=2, initial_window=252)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252, refit_at_rebalance=False)
     assert len(result.pi_history) == len(result.dates)
     assert all(0.0 <= p <= 1.0 for p in result.pi_history)
 
@@ -53,7 +53,7 @@ def test_equal_weight_benchmark_is_actually_static_before_drift():
     weight is exactly equal-weighted (post-projection, so allow the
     constraint tolerance)."""
     ds, _ = make_synthetic_universe(n_days=400, seed=5)
-    result = run_walk_forward(ds.returns, n_states=2, initial_window=252)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252, refit_at_rebalance=False)
     w_eq = result.weights["equal_weight"]
     n_assets = w_eq.shape[1]
     # at least one rebalance should be close to exactly equal-weighted
@@ -168,3 +168,41 @@ def test_execution_history_dated_one_day_after_decision_with_open_data():
             decision_idx = all_dates.index(decision_entry["date"])
             assert exec_entry["date"] == all_dates[decision_idx + 1]
             assert np.isclose(exec_entry["turnover"], decision_entry["turnover"])
+
+
+def test_scheduled_refit_occurs_multiple_times_and_results_remain_valid():
+    """Test that scheduled monthly refits occur and that results remain
+    valid (weights sum to 1, returns are finite, etc.) across multiple
+    refits. Uses a synthetic series long enough to trigger ~30 refits."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=252, alpha=0.97,
+        refit_n_iter=20,   # reduced for faster test
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    # Verify refits occurred and are unique
+    assert len(result.refit_dates) > 1, f"Expected multiple refits, got {len(result.refit_dates)}"
+    assert len(result.refit_dates) == len(set(result.refit_dates)), "Duplicate refit dates found"
+
+    # Verify shape/bounds invariants still hold across refits
+    for config, w in result.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), f"{config} weights don't sum to 1"
+        assert (w >= -1e-6).all(), f"{config} has negative weights"
+
+    for r in result.portfolio_returns.values():
+        assert np.isfinite(r).all(), "Non-finite returns found"
+
+
+def test_refit_at_rebalance_false_reproduces_fit_once_behavior():
+    """Test that setting refit_at_rebalance=False disables scheduled refits
+    and produces the fit-once behavior (refit_dates is empty)."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=252, alpha=0.97,
+        refit_at_rebalance=False,
+    )
+    assert len(result.refit_dates) == 0, "Expected no refits when refit_at_rebalance=False"
+
+    # Basic sanity checks still apply
+    for config, w in result.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)

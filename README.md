@@ -15,16 +15,16 @@ constraints, and a walk-forward evaluation harness.
 ## Status
 
 **Working end-to-end on both synthetic and the real ten-ETF universe**,
-with a full pytest suite (60 tests passing, 1 skipped -- the skip is the
-pre-existing torch-absence check for `allocation_lstm.py`, which is not
-wired into this branch's harness; see the LSTM feature branches for that
-piece). The ERC baseline/regime/reliability-blend walk-forward harness
-has been run on real data with M2's calendar boundaries
-(`data.M2Calendar`), next-session-open execution, a transaction-cost
-ledger (5/10/25 bps sensitivity), the Deflated Sharpe Ratio, and
-risk-contribution diagnostics all wired in -- see "Next steps" below for
-what's still not on this branch (scheduled refit, LSTM training/
-integration, and robustness checks all live on feature branches).
+with a full pytest suite passing (the only skip is the pre-existing
+torch-absence check for `allocation_lstm.py`, which isn't wired into
+this branch's harness). The ERC baseline/regime/reliability-blend
+walk-forward harness has been run on real data with M2's calendar
+boundaries (`data.M2Calendar`), next-session-open execution, a
+transaction-cost ledger (5/10/25 bps sensitivity), the Deflated Sharpe
+Ratio, and risk-contribution diagnostics all wired in, **plus scheduled
+model refit** (see below) -- see "Next steps" below for what's still not
+on this branch (LSTM training/integration and robustness checks live on
+the LSTM feature branches).
 
 ```
 python scripts/run_smoke_test.py       # synthetic 2-regime data, plumbing check
@@ -76,11 +76,12 @@ corresponding tests skip cleanly rather than failing.
 
 ## Known scope limitations (intentional, not oversights)
 
-- **Scheduled model refit is not on this branch.** This branch's
-  walk-forward harness fits the HMM/M0/M1 once on the initial window and
-  holds parameters fixed through the loop; `feature/scheduled-refit`
-  (and everything built on top of it) adds periodic re-fitting using
-  only `F(t)`, per the M2 pseudocode.
+- **Scheduled model refit is implemented**, expanding window through F(t)
+  with state alignment via Bhattacharyya distance + Hungarian assignment
+  for label continuity. The EM iteration budget is capped at 50
+  iterations per refit; warm-start, incremental filtering, and other
+  performance mitigations are deferred pending real-data runtime
+  assessment.
 - **The LSTM allocator isn't wired into this branch's walk-forward
   harness.** Its model, loss function, and end-to-end differentiable
   training loop (via `cvxpylayers`) are implemented and have been run on

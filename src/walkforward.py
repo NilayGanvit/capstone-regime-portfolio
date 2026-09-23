@@ -8,8 +8,9 @@ the M2 pseudocode's ordering:
         accrue held-portfolio return through the close
         observe r(t); score r(t) under M0/M1 densities saved at t-1
         update pi from prior model weights and log-likelihoods
-        (scheduled refit, using F(t) only, omitted from this first pass --
-         see README "Known scope limitations")
+        scheduled refit (monthly, expanding window through F(t), using only
+          information available through t; state continuity maintained via
+          Bhattacharyya distance + Hungarian assignment; see regime.py)
         filter HMM states and predict probabilities for day t+1
         save M0/M1 predictive densities for r(t+1)
         if t is a month-end allocation date:
@@ -17,11 +18,11 @@ the M2 pseudocode's ordering:
             blend using current pi
             project onto constraints and schedule for next open
 
-This first pass wires ERC only (no LSTM -- that requires the torch
-module, not available in this sandbox) and does not yet implement the
-scheduled re-fit step, so parameters are fit once on an initial window
-and held fixed through the walk-forward loop. Both are named explicitly
-in the README as the next things to build, not silently skipped.
+This harness wires ERC only (no LSTM -- that requires the torch module,
+not available in this sandbox). Scheduled refit is implemented: the HMM,
+M0/M1 densities, and covariances are re-estimated monthly on an expanding
+window with state alignment to maintain label continuity across refits.
+The refit-at-rebalance toggle allows A/B comparison for later analysis.
 
 Owner: Nilay (ties every other module together; each owner's module
 above is used here as originally specified, not reimplemented).
@@ -51,6 +52,7 @@ class WalkForwardResult:
     log_l1_history: list
     binding_constraints_history: dict  # config_name -> list of {date, lower_bound_binding, upper_bound_binding, turnover_binding, turnover, risk_contribution_pre_constraint_max_dev, risk_contribution_post_constraint_max_dev}, one entry per rebalance
     execution_history: dict  # config_name -> list of {date, turnover}, one entry per rebalance, dated on the day the trade actually executes (== decision date if no open-price data, decision date + 1 trading day otherwise) -- the reference series for transaction-cost accounting
+    refit_dates: list       # dates on which a scheduled refit occurred
 
 
 def _rebalance_dates(returns: pd.DataFrame) -> set:
@@ -71,6 +73,9 @@ def run_walk_forward(
     constraint_spec: ConstraintSpec | None = None,
     close_to_open_returns: pd.DataFrame | None = None,
     open_to_close_returns: pd.DataFrame | None = None,
+    refit_at_rebalance: bool = True,
+    refit_n_iter: int = 50,
+    refit_warm_start: bool = True,
 ) -> WalkForwardResult:
     """Run the ERC baseline / regime / reliability-blend configurations
     walk-forward, plus the fixed equal-weight benchmark, over `returns`
@@ -126,6 +131,7 @@ def run_walk_forward(
     binding_history = {c: [] for c in configs}
     execution_history = {c: [] for c in configs}
     pi_history, log_l0_history, log_l1_history = [], [], []
+    refit_dates = []
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
     # Set on a rebalance date (to the target the decision produced) and
@@ -192,6 +198,39 @@ def run_walk_forward(
         predicted_for_tomorrow = hmm.predicted_probabilities(hist_incl_today)[-1]
 
         if date in rebalance_dates:
+            # Scheduled refit: update HMM/M0/M1/nu/pooled_cov/state_covs
+            # using an expanding window through F(t) (today's return included)
+            if refit_at_rebalance:
+                train = X[:abs_idx + 1]
+                if refit_warm_start:
+                    # Warm-start from the previous fit's params instead of a
+                    # fresh random init -- independent random inits land in
+                    # a different-but-plausible local optimum most months,
+                    # causing regime probabilities to whipsaw and erc_regime's
+                    # target weights/drawdown to follow (diagnosed via
+                    # month-to-month state_covs Frobenius-change comparison).
+                    new_hmm = GaussianHMM(n_states=n_states, n_iter=refit_n_iter).fit(train, init_from=hmm)
+                else:
+                    refit_seed = 1000 + len(refit_dates)  # kept only for the disabled-warm-start comparison arm
+                    new_hmm = GaussianHMM(n_states=n_states, random_state=refit_seed, n_iter=refit_n_iter).fit(train)
+                new_hmm.align_to(hmm)
+                hmm = new_hmm
+
+                filtered_train = hmm.filtered_probabilities(train)
+
+                std_resid = ((train - train.mean(axis=0)) / train.std(axis=0)).ravel()
+                nu = fit_shared_nu(std_resid)
+                m0 = M0PooledStudentT(nu=nu).fit(train)
+                m1 = M1RegimeMixtureStudentT(nu=nu).fit(train, filtered_train)
+
+                pooled_cov = np.cov(train.T)
+                state_covs = np.array(m1.scales_) * nu / (nu - 2)
+
+                refit_dates.append(date)
+
+                hist_incl_today = train
+                predicted_for_tomorrow = hmm.predicted_probabilities(hist_incl_today)[-1]
+
             regime_probs_now = predicted_for_tomorrow  # one-step-ahead, using F(t)
 
             baseline_cov = regularize_covariance(pooled_cov, shrinkage)
@@ -272,4 +311,5 @@ def run_walk_forward(
         log_l1_history=log_l1_history,
         binding_constraints_history=binding_history,
         execution_history=execution_history,
+        refit_dates=refit_dates,
     )

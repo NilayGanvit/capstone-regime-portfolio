@@ -97,22 +97,44 @@ class GaussianHMM:
         log_likelihood = np.sum(np.log(c))
         return alpha, beta, gamma, xi_sum, log_likelihood
 
-    def fit(self, X: np.ndarray) -> "GaussianHMM":
-        """Fit by EM. X is (T, n_features), rows in chronological order."""
+    def fit(self, X: np.ndarray, init_from: "GaussianHMM | None" = None) -> "GaussianHMM":
+        """Fit by EM. X is (T, n_features), rows in chronological order.
+
+        If `init_from` is given, EM is warm-started from its means_/covars_/
+        transmat_/startprob_ instead of a fresh random init -- confirmed by
+        diagnostic investigation to be necessary for scheduled monthly
+        refits: independent random inits land in a different-but-plausible
+        local optimum most months, causing regime probabilities to whipsaw
+        and erc_regime's target weights/drawdown to follow. Raising n_iter
+        does not fix this -- the EM trajectory is already flat well before
+        50 iterations regardless of init.
+        """
         X = np.asarray(X, dtype=float)
         T, F = X.shape
         self.n_features_ = F
-        rng = np.random.default_rng(self.random_state)
 
-        # k-means-ish init: random rows as initial means, global covariance
-        # for every state, uniform transitions -- deliberately uninformative
-        # so convergence isn't an artifact of a lucky start.
-        init_idx = rng.choice(T, size=self.n_states, replace=False)
-        self.means_ = X[init_idx].copy()
-        global_cov = np.cov(X.T) + 1e-6 * np.eye(F)
-        self.covars_ = np.array([global_cov.copy() for _ in range(self.n_states)])
-        self.transmat_ = np.full((self.n_states, self.n_states), 1.0 / self.n_states)
-        self.startprob_ = np.full(self.n_states, 1.0 / self.n_states)
+        if init_from is not None:
+            if init_from.n_states != self.n_states:
+                raise ValueError(
+                    f"Cannot warm-start: self.n_states={self.n_states} != "
+                    f"init_from.n_states={init_from.n_states}"
+                )
+            self.means_ = init_from.means_.copy()
+            self.covars_ = init_from.covars_.copy()
+            self.transmat_ = init_from.transmat_.copy()
+            self.startprob_ = init_from.startprob_.copy()
+        else:
+            rng = np.random.default_rng(self.random_state)
+
+            # k-means-ish init: random rows as initial means, global covariance
+            # for every state, uniform transitions -- deliberately uninformative
+            # so convergence isn't an artifact of a lucky start.
+            init_idx = rng.choice(T, size=self.n_states, replace=False)
+            self.means_ = X[init_idx].copy()
+            global_cov = np.cov(X.T) + 1e-6 * np.eye(F)
+            self.covars_ = np.array([global_cov.copy() for _ in range(self.n_states)])
+            self.transmat_ = np.full((self.n_states, self.n_states), 1.0 / self.n_states)
+            self.startprob_ = np.full(self.n_states, 1.0 / self.n_states)
 
         prev_ll = -np.inf
         for iteration in range(self.n_iter):
@@ -180,6 +202,80 @@ class GaussianHMM:
             + (self.n_states - 1)  # initial distribution
         )
         return -2 * self.log_likelihood_ + n_params * np.log(T)
+
+    def align_to(self, reference: "GaussianHMM") -> "GaussianHMM":
+        """Permute self's state-indexed parameters (means_, covars_,
+        startprob_, transmat_) in place so state k refers to the same regime
+        as reference's state k, for label continuity across scheduled refits.
+        Mutates and returns self. Raises ValueError if self.n_states !=
+        reference.n_states. The very first fit has no reference and is never
+        aligned -- it keeps whatever labeling .fit() produces."""
+        if self.n_states != reference.n_states:
+            raise ValueError(
+                f"Cannot align: self.n_states={self.n_states} != "
+                f"reference.n_states={reference.n_states}"
+            )
+        perm = state_alignment_permutation(
+            self.means_, self.covars_, reference.means_, reference.covars_
+        )
+        self.means_ = self.means_[perm]
+        self.covars_ = self.covars_[perm]
+        self.startprob_ = self.startprob_[perm]
+        self.transmat_ = self.transmat_[perm][:, perm]
+        return self
+
+
+def bhattacharyya_distance(
+    mean_a: np.ndarray,
+    cov_a: np.ndarray,
+    mean_b: np.ndarray,
+    cov_b: np.ndarray,
+) -> float:
+    """Symmetric Bhattacharyya distance between two multivariate Gaussians.
+    Combines mean separation and covariance-shape separation into one
+    unit-consistent (nats) distance with no free weighting hyperparameter.
+    Used as the state-matching cost for state_alignment_permutation()."""
+    F = mean_a.shape[0]
+    sigma_avg = (cov_a + cov_b) / 2.0 + 1e-8 * np.eye(F)
+    diff = mean_a - mean_b
+
+    sign_a, logdet_a = np.linalg.slogdet(cov_a)
+    sign_b, logdet_b = np.linalg.slogdet(cov_b)
+    sign_avg, logdet_avg = np.linalg.slogdet(sigma_avg)
+
+    if sign_a <= 0 or sign_b <= 0 or sign_avg <= 0:
+        return float("inf")
+
+    term1 = 0.125 * diff @ np.linalg.solve(sigma_avg, diff)
+    term2 = 0.5 * (logdet_avg - 0.5 * (logdet_a + logdet_b))
+    return float(term1 + term2)
+
+
+def state_alignment_permutation(
+    new_means: np.ndarray,
+    new_covars: np.ndarray,
+    ref_means: np.ndarray,
+    ref_covars: np.ndarray,
+) -> np.ndarray:
+    """Return a permutation array perm of length K such that
+    new_means[perm], new_covars[perm] are reordered to best match
+    ref_means/ref_covars in the Bhattacharyya-distance sense.
+    Uses scipy.optimize.linear_sum_assignment (Hungarian algorithm).
+    Pure function over raw arrays -- independently unit-testable without
+    a GaussianHMM instance."""
+    from scipy.optimize import linear_sum_assignment
+
+    K = new_means.shape[0]
+    cost = np.empty((K, K))
+    for i in range(K):
+        for j in range(K):
+            cost[i, j] = bhattacharyya_distance(
+                new_means[i], new_covars[i], ref_means[j], ref_covars[j]
+            )
+
+    row_ind, col_ind = linear_sum_assignment(cost)
+    perm = np.argsort(col_ind)
+    return perm
 
 
 def bic_for_state_counts(X: np.ndarray, candidates=(2, 3, 4), random_state: int = 0) -> dict:

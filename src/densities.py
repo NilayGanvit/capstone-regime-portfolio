@@ -75,6 +75,8 @@ class M0PooledStudentT:
         # For a multivariate Student-t with df=nu, Cov = scale * nu/(nu-2),
         # so recover `scale` from the sample covariance accordingly.
         sample_cov = np.cov(X.T)
+        n_features = X.shape[1]
+        sample_cov = sample_cov + 1e-6 * np.eye(n_features)
         self.scale_ = sample_cov * (self.nu - 2) / self.nu
         return self
 
@@ -103,9 +105,11 @@ class M1RegimeMixtureStudentT:
         specified, not a full-sample smoothed fit.
         """
         n_states = filtered_state_probs.shape[1]
+        n_features = X.shape[1]
         means, scales = [], []
         for k in range(n_states):
             mean_k, cov_k = weighted_mean_cov(X, filtered_state_probs[:, k])
+            cov_k = cov_k + 1e-6 * np.eye(n_features)
             scale_k = cov_k * (self.nu - 2) / self.nu
             means.append(mean_k)
             scales.append(scale_k)
