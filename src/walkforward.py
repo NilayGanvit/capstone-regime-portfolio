@@ -68,18 +68,39 @@ def run_walk_forward(
     alpha: float = 0.97,
     shrinkage: float = 0.10,
     constraint_spec: ConstraintSpec | None = None,
+    close_to_open_returns: pd.DataFrame | None = None,
+    open_to_close_returns: pd.DataFrame | None = None,
 ) -> WalkForwardResult:
     """Run the ERC baseline / regime / reliability-blend configurations
     walk-forward, plus the fixed equal-weight benchmark, over `returns`
     (T x n_assets, chronologically ordered log returns).
+
+    `close_to_open_returns`/`open_to_close_returns` (both required together,
+    same index as `returns`; see data.PriceDataset) enable M2's "executed
+    at the opening of the following trading session" timing: a rebalance
+    decided using information through close(t) has its *return* effect
+    split so the old target keeps earning the close(t)->open(t+1) overnight
+    leg and only the new target earns the open(t+1)->close(t+1) leg. Each
+    rebalance's own turnover/binding constraints are computed on the
+    decision itself (w_drift -> w_final, per M2), not on when it executes;
+    a *later* rebalance's turnover can still shift slightly, though, since
+    the position it drifts from has itself followed a different path once
+    execution timing changes. If either is
+    None, the harness falls back to same-close execution (the new target
+    earns the whole close(t)->close(t+1) return), which is what every
+    caller without open-price data gets.
     """
     if constraint_spec is None:
         constraint_spec = ConstraintSpec()
+    have_open_data = close_to_open_returns is not None and open_to_close_returns is not None
 
     dates = returns.index
     X = returns.to_numpy()
     n_assets = X.shape[1]
     rebalance_dates = _rebalance_dates(returns)
+    if have_open_data:
+        CO = close_to_open_returns.reindex(dates).to_numpy()
+        OC = open_to_close_returns.reindex(dates).to_numpy()
 
     # --- Initialization (fit once on the initial window; see the
     # module-level docstring re: scheduled refit being out of scope for
@@ -105,6 +126,10 @@ def run_walk_forward(
     pi_history, log_l0_history, log_l1_history = [], [], []
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
+    # Set on a rebalance date (to the target the decision produced) and
+    # consumed the very next trading day, when have_open_data is True --
+    # see the docstring's note on split-leg execution timing.
+    pending_execution = {c: None for c in configs}
     walk_dates = dates[initial_window:]
 
     for t_idx, date in enumerate(walk_dates):
@@ -117,9 +142,28 @@ def run_walk_forward(
         # via cumprod(1+r), which is only valid for simple returns).
         simple_r_t = np.exp(r_t) - 1.0
 
-        # Held-portfolio return accrual, using *previous* period's final weights
-        for c in configs:
-            port_ret_out[c].append(float(prev_weights[c] @ simple_r_t))
+        executed_today = have_open_data and any(pending_execution[c] is not None for c in configs)
+        if executed_today:
+            # Today executes yesterday's rebalance decision at the open:
+            # the old target earns the overnight close(t-1)->open(t) leg,
+            # the new target earns the open(t)->close(t) leg. Held-return
+            # accrual and the end-of-day holding are both derived from this
+            # split rather than from simple_r_t directly.
+            simple_co_t = np.exp(CO[abs_idx]) - 1.0
+            simple_oc_t = np.exp(OC[abs_idx]) - 1.0
+            for c in configs:
+                old_w = prev_weights[c]
+                new_w = pending_execution[c]
+                leg_overnight = 1.0 + float(old_w @ simple_co_t)
+                leg_intraday = 1.0 + float(new_w @ simple_oc_t)
+                port_ret_out[c].append(leg_overnight * leg_intraday - 1.0)
+                prev_weights[c] = drift_weights(new_w, np.exp(OC[abs_idx]))
+                weights_out[c].append(prev_weights[c])
+                pending_execution[c] = None
+        else:
+            # Held-portfolio return accrual, using *previous* period's final weights
+            for c in configs:
+                port_ret_out[c].append(float(prev_weights[c] @ simple_r_t))
 
         # Score r_t under M0/M1 densities computed using only information
         # through t-1 (filtered probs from history up to abs_idx, i.e.
@@ -161,13 +205,25 @@ def run_walk_forward(
             for c in configs:
                 w_drift = drift_weights(prev_weights[c], np.exp(r_t))
                 w_final = project_onto_constraints(raw_targets[c], w_drift, constraint_spec)
-                prev_weights[c] = w_final
+                # Turnover/binding constraints are defined on the decision
+                # itself (w_drift -> w_final), independent of when it
+                # executes, per M2's "turnover will be calculated based on
+                # the actual weights at the time of rebalancing."
                 weights_out[c].append(w_final)
                 binding = binding_constraints(w_final, w_drift, constraint_spec)
                 binding["date"] = date
                 binding["turnover"] = turnover_fn(w_final, w_drift)
                 binding_history[c].append(binding)
-        else:
+                if have_open_data:
+                    # Execute at tomorrow's open (see the split-leg handling
+                    # above): prev_weights becomes today's pre-trade holding
+                    # (still earning tonight's overnight leg), and w_final
+                    # only takes effect once that leg has been scored.
+                    prev_weights[c] = w_drift
+                    pending_execution[c] = w_final
+                else:
+                    prev_weights[c] = w_final
+        elif not executed_today:
             for c in configs:
                 w_drift = drift_weights(prev_weights[c], np.exp(r_t))
                 prev_weights[c] = w_drift

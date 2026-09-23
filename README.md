@@ -80,10 +80,12 @@ this sandbox and does not depend on torch.
   Li & Mulvey (2021) do it, needs a differentiable convex-optimization
   layer (e.g. `cvxpylayers`), which is not installed here and is flagged
   as its own follow-on task rather than approximated silently.
-- **No real price data.** `data.py::PriceDataset.from_csv_dir` is ready
-  to load real ETF CSVs (one file per ticker, `Date`/`AdjClose` columns)
-  once downloaded; `make_synthetic_universe` exists purely so the rest
-  of the pipeline could be built and tested without waiting on that.
+- **Real price data.** `data.py::PriceDataset.from_csv_dir` loads real ETF
+  CSVs from `data/raw/` (one file per ticker, `Date`/`AdjClose` columns,
+  plus an optional `AdjOpen` column -- adjusted the same way as `AdjClose`
+  -- that enables next-session-open execution timing; without it the
+  harness falls back to same-close execution). `make_synthetic_universe`
+  still exists for building/testing the pipeline without real data.
 - **HRP and per-regime ν are out of scope for this pass**, per M2's
   scope note — secondary robustness checks only if time allows.
 

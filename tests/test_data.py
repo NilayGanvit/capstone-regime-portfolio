@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -40,6 +41,40 @@ def test_rejects_missing_tickers():
     )
     with pytest.raises(ValueError):
         PriceDataset(bad_prices)
+
+
+def test_opens_defaults_to_none_and_close_leg_properties_raise():
+    ds, _ = make_synthetic_universe(n_days=50, seed=0)
+    assert ds.opens is None
+    with pytest.raises(ValueError):
+        _ = ds.close_to_open_returns
+    with pytest.raises(ValueError):
+        _ = ds.open_to_close_returns
+
+
+def test_open_to_close_and_close_to_open_returns_compose_to_close_to_close():
+    dates = pd.bdate_range("2020-01-01", periods=5)
+    close = pd.DataFrame({t: [100.0, 101.0, 99.0, 102.0, 103.0] for t in UNIVERSE}, index=dates)
+    open_ = pd.DataFrame({t: [100.0, 100.5, 100.0, 100.5, 102.5] for t in UNIVERSE}, index=dates)
+    ds = PriceDataset(close, open_)
+
+    co = ds.close_to_open_returns  # log(Open(t)/Close(t-1)), rows 1..4
+    oc = ds.open_to_close_returns  # log(Close(t)/Open(t)), rows 0..4
+    close_to_close = ds.returns    # log(Close(t)/Close(t-1)), rows 1..4
+
+    composed = co + oc.loc[co.index]
+    assert np.allclose(composed.to_numpy(), close_to_close.to_numpy())
+
+
+def test_as_of_truncates_opens_alongside_prices():
+    dates = pd.bdate_range("2020-01-01", periods=5)
+    close = pd.DataFrame({t: np.linspace(100, 110, 5) for t in UNIVERSE}, index=dates)
+    open_ = pd.DataFrame({t: np.linspace(100, 109, 5) for t in UNIVERSE}, index=dates)
+    ds = PriceDataset(close, open_)
+    truncated = ds.as_of(dates[2])
+    assert len(truncated.prices) == 3
+    assert len(truncated.opens) == 3
+    assert truncated.opens.index.max() == dates[2]
 
 
 def test_initial_window_length_counts_only_dates_through_initial_training_end():

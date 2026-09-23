@@ -24,15 +24,25 @@ UNIVERSE = ["SPY", "EFA", "EEM", "IEF", "TLT", "LQD", "HYG", "GLD", "DBC", "VNQ"
 
 @dataclass
 class PriceDataset:
-    """Adjusted close prices and daily log returns for the M2 universe.
+    """Adjusted close (and, optionally, adjusted open) prices and daily log
+    returns for the M2 universe.
 
     Parameters
     ----------
     prices : pd.DataFrame
-        Date-indexed, one column per ticker in UNIVERSE order.
+        Date-indexed adjusted close, one column per ticker in UNIVERSE order.
+    opens : pd.DataFrame | None
+        Date-indexed adjusted open, same index and columns as `prices`.
+        Adjusted the same way as `prices` (dividend/split factor applied to
+        the raw open) so that close_to_open_returns/open_to_close_returns
+        are on a consistent total-return basis -- per M2's "executed at the
+        opening of the following trading session, using consistently
+        adjusted prices." None when only close prices are available (the
+        harness then falls back to same-close execution timing).
     """
 
     prices: pd.DataFrame
+    opens: pd.DataFrame | None = None
 
     def __post_init__(self) -> None:
         missing = [t for t in UNIVERSE if t not in self.prices.columns]
@@ -41,6 +51,13 @@ class PriceDataset:
         self.prices = self.prices[UNIVERSE].sort_index()
         if self.prices.index.has_duplicates:
             raise ValueError("Price index has duplicate dates.")
+        if self.opens is not None:
+            missing = [t for t in UNIVERSE if t not in self.opens.columns]
+            if missing:
+                raise ValueError(f"Open price data missing tickers: {missing}")
+            self.opens = self.opens[UNIVERSE].sort_index()
+            if not self.opens.index.equals(self.prices.index):
+                raise ValueError("opens must have exactly the same date index as prices.")
 
     @property
     def returns(self) -> pd.DataFrame:
@@ -48,6 +65,27 @@ class PriceDataset:
         reflects information available by the close of day t -- consistent
         with F(t) in the M2 pseudocode."""
         return np.log(self.prices / self.prices.shift(1)).dropna(how="all")
+
+    def _require_opens(self) -> pd.DataFrame:
+        if self.opens is None:
+            raise ValueError(
+                "This PriceDataset has no open-price data (opens=None); "
+                "load it via from_csv_dir with AdjOpen columns present."
+            )
+        return self.opens
+
+    @property
+    def close_to_open_returns(self) -> pd.DataFrame:
+        """Log return from the previous close to today's open, i.e. the
+        overnight gap: log(Open(t) / Close(t-1))."""
+        opens = self._require_opens()
+        return np.log(opens / self.prices.shift(1)).dropna(how="all")
+
+    @property
+    def open_to_close_returns(self) -> pd.DataFrame:
+        """Log return from today's open to today's close: log(Close(t) / Open(t))."""
+        opens = self._require_opens()
+        return np.log(self.prices / opens)
 
     def as_of(self, date: pd.Timestamp) -> "PriceDataset":
         """Return a copy truncated to information available through `date`.
@@ -57,18 +95,22 @@ class PriceDataset:
         slicing the full-sample DataFrame directly. This is the one place
         a look-ahead bug is easiest to introduce silently.
         """
-        return PriceDataset(self.prices.loc[:date])
+        opens_slice = self.opens.loc[:date] if self.opens is not None else None
+        return PriceDataset(self.prices.loc[:date], opens_slice)
 
     @classmethod
     def from_csv_dir(cls, directory: str) -> "PriceDataset":
         """Load one CSV per ticker from `directory`, each with columns
-        [Date, AdjClose]. This is the loader for real ETF data once the
-        group has downloaded it; it is not exercised by the test suite
-        because no network access is available in this environment.
+        [Date, AdjClose] and, optionally, [AdjOpen] (dividend/split-adjusted
+        the same way as AdjClose -- see the PriceDataset.opens docstring).
+        If any ticker's CSV lacks an AdjOpen column, `opens` is left None
+        for the whole dataset rather than partially populated.
         """
         import pathlib
 
-        series = {}
+        close_series = {}
+        open_series = {}
+        have_all_opens = True
         for ticker in UNIVERSE:
             path = pathlib.Path(directory) / f"{ticker}.csv"
             if not path.exists():
@@ -77,9 +119,14 @@ class PriceDataset:
                     "columns [Date, AdjClose]."
                 )
             df = pd.read_csv(path, parse_dates=["Date"]).set_index("Date")
-            series[ticker] = df["AdjClose"]
-        prices = pd.DataFrame(series)
-        return cls(prices)
+            close_series[ticker] = df["AdjClose"]
+            if "AdjOpen" in df.columns:
+                open_series[ticker] = df["AdjOpen"]
+            else:
+                have_all_opens = False
+        prices = pd.DataFrame(close_series)
+        opens = pd.DataFrame(open_series) if have_all_opens else None
+        return cls(prices, opens)
 
 
 @dataclass(frozen=True)

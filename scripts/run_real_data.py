@@ -106,6 +106,12 @@ def main() -> None:
     returns = ds.returns
     print(f"\nLoaded {len(returns)} trading days, {returns.index.min().date()} "
           f"to {returns.index.max().date()}, tickers: {list(returns.columns)}")
+    if ds.opens is not None:
+        print("Open prices available -- rebalances execute at the next session's "
+              "open per M2, not at the decision-day close.")
+    else:
+        print("WARNING: no open-price data found -- falling back to same-close "
+              "execution timing (see data.PriceDataset.opens).")
 
     calendar = M2Calendar()
     initial_window = initial_window_length(returns.index, calendar)
@@ -119,6 +125,8 @@ def main() -> None:
         initial_window=initial_window,
         alpha=0.97,
         constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+        close_to_open_returns=ds.close_to_open_returns if ds.opens is not None else None,
+        open_to_close_returns=ds.open_to_close_returns if ds.opens is not None else None,
     )
     runtime = time.time() - t0
     print(f"\nWalk-forward runtime: {runtime:.1f}s over {len(result.dates)} trading days\n")
