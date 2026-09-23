@@ -5,7 +5,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from data import make_synthetic_universe, UNIVERSE, PriceDataset
+import pandas as pd
+
+from data import make_synthetic_universe, UNIVERSE, PriceDataset, M2Calendar, initial_window_length, stage_labels
 
 
 def test_synthetic_universe_shape_and_columns():
@@ -38,3 +40,39 @@ def test_rejects_missing_tickers():
     )
     with pytest.raises(ValueError):
         PriceDataset(bad_prices)
+
+
+def test_initial_window_length_counts_only_dates_through_initial_training_end():
+    dates = pd.bdate_range("2014-12-01", "2015-01-31")
+    calendar = M2Calendar(initial_training_end=pd.Timestamp("2014-12-31"))
+    n = initial_window_length(dates, calendar)
+    assert dates[n - 1] <= calendar.initial_training_end
+    assert dates[n] > calendar.initial_training_end
+
+
+def test_stage_labels_partitions_validation_and_final_test_and_beyond():
+    calendar = M2Calendar(
+        initial_training_end=pd.Timestamp("2014-12-31"),
+        validation_end=pd.Timestamp("2018-12-31"),
+        final_test_end=pd.Timestamp("2026-08-31"),
+    )
+    dates = pd.to_datetime(
+        ["2010-06-15", "2016-03-01", "2020-07-01", "2026-09-05"]
+    )
+    labels = stage_labels(dates, calendar)
+    assert list(labels) == [
+        "initial_training",
+        "validation",
+        "final_test",
+        "post_final_test",
+    ]
+
+
+def test_stage_labels_boundary_dates_are_inclusive_to_the_earlier_stage():
+    calendar = M2Calendar(
+        initial_training_end=pd.Timestamp("2014-12-31"),
+        validation_end=pd.Timestamp("2018-12-31"),
+        final_test_end=pd.Timestamp("2026-08-31"),
+    )
+    labels = stage_labels(pd.to_datetime(["2014-12-31", "2018-12-31", "2026-08-31"]), calendar)
+    assert list(labels) == ["initial_training", "validation", "final_test"]

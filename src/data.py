@@ -82,6 +82,58 @@ class PriceDataset:
         return cls(prices)
 
 
+@dataclass(frozen=True)
+class M2Calendar:
+    """Fixed calendar boundaries from M2's "Walk-forward testing and data
+    timing" section (the calendar table for the main ten-ETF specification):
+
+        Initial training     first common trading date -- 2014-12-31
+        Chronological validation  2015-01-01 -- 2018-12-31 (48 monthly periods)
+        Final walk-forward test   2019-01-01 -- 2026-08-31 (92 monthly periods)
+
+    Boundaries apply to the trading observations within each period; feature
+    warm-up is confined to the initial training period. Any date after
+    final_test_end (e.g. from a data pull that runs later than the M2
+    submission) falls outside this calendar entirely and must not be
+    scored as part of the frozen final test.
+    """
+
+    initial_training_end: pd.Timestamp = pd.Timestamp("2014-12-31")
+    validation_end: pd.Timestamp = pd.Timestamp("2018-12-31")
+    final_test_end: pd.Timestamp = pd.Timestamp("2026-08-31")
+
+
+def initial_window_length(dates: pd.DatetimeIndex, calendar: M2Calendar = M2Calendar()) -> int:
+    """Number of leading trading days in `dates` on or before
+    `calendar.initial_training_end`. Pass this as `initial_window` to
+    run_walk_forward so the initial-fit window matches M2's calendar (the
+    first common trading date through 31 Dec 2014) rather than an
+    arbitrary day count.
+    """
+    return int((dates <= calendar.initial_training_end).sum())
+
+
+def stage_labels(dates: pd.DatetimeIndex, calendar: M2Calendar = M2Calendar()) -> pd.Series:
+    """Label each date as 'initial_training', 'validation', 'final_test', or
+    'post_final_test'. Use this to split a walk-forward run's dates so that
+    validation-period results (used for any tuning/selection) and
+    final-test results (the frozen, one-shot out-of-sample number) are
+    never reported or compared as if they were the same thing -- and so
+    dates beyond M2's calendar are never silently folded into the "final
+    test" figure.
+    """
+    def _label(d: pd.Timestamp) -> str:
+        if d <= calendar.initial_training_end:
+            return "initial_training"
+        if d <= calendar.validation_end:
+            return "validation"
+        if d <= calendar.final_test_end:
+            return "final_test"
+        return "post_final_test"
+
+    return pd.Series([_label(d) for d in dates], index=dates, name="stage")
+
+
 def make_synthetic_universe(
     n_days: int = 1500,
     n_assets: int = 10,

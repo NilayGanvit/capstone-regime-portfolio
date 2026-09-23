@@ -1,5 +1,5 @@
-config,sharpe,cagr,max_drawdown,sortino,calmar,avg_turnover,concentration_hhi
-erc_baseline,0.534,0.0623,-0.4192,0.649,0.149,0.0092,0.178
-erc_regime,0.655,0.0523,-0.2429,0.839,0.215,0.0143,0.1374
-erc_blend,0.593,0.0644,-0.4141,0.716,0.155,0.0153,0.1518
-equal_weight,0.565,0.0575,-0.3483,0.707,0.165,0.01,0.1001
+config,n_days,sharpe,cagr,max_drawdown,sortino,calmar,avg_turnover,concentration_hhi
+erc_baseline,1926,0.743,0.0586,-0.2068,0.98,0.283,0.0075,0.1377
+erc_regime,1926,0.77,0.0639,-0.2119,0.974,0.302,0.012,0.1302
+erc_blend,1926,0.772,0.064,-0.2103,0.975,0.304,0.0119,0.1297
+equal_weight,1926,0.879,0.0876,-0.1995,1.068,0.439,0.0091,0.1001
