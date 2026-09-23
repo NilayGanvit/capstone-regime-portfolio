@@ -25,6 +25,13 @@ run_walk_forward; see that module's docstring), and still the
 initial-window-fit-plus-scheduled-quarterly-refit configuration documented
 there, not a claim that every other design choice has been stress-tested.
 
+Initial window, calendar-stage reporting, and next-session-open execution
+all follow data.M2Calendar and run_real_data.py's convention -- see that
+script for why: an arbitrary 252-day window and an unsplit sample would
+make these robustness checks incomparable to the primary run's headline
+numbers, and would risk folding validation-period days into what should
+be a frozen final-test comparison.
+
 Usage:
     python scripts/run_robustness_checks.py
 """
@@ -38,7 +45,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from data import PriceDataset, UNIVERSE  # noqa: E402
+from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels  # noqa: E402
 from regime import bic_for_state_counts  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec, drift_weights  # noqa: E402
@@ -55,7 +62,10 @@ SPECS = {
 }
 
 
-def summarize(result, returns: pd.DataFrame, initial_window: int) -> pd.DataFrame:
+def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray) -> pd.DataFrame:
+    """Final-test-only metrics (mask selects that stage's days), matching
+    run_real_data.py's convention -- see that script for why validation
+    and final-test are never pooled into one figure."""
     rows = []
     for config, r in result.portfolio_returns.items():
         w = result.weights[config]
@@ -65,13 +75,13 @@ def summarize(result, returns: pd.DataFrame, initial_window: int) -> pd.DataFram
         ])
         rows.append({
             "config": config,
-            "sharpe": round(sharpe_ratio(r), 3),
-            "cagr": round(cagr(r), 4),
-            "max_drawdown": round(max_drawdown(r), 4),
-            "sortino": round(sortino_ratio(r), 3),
-            "calmar": round(calmar_ratio(r), 3),
-            "avg_turnover": round(average_turnover(w, w_drift), 4),
-            "concentration_hhi": round(herfindahl_concentration(w), 4),
+            "sharpe": round(sharpe_ratio(r[mask]), 3),
+            "cagr": round(cagr(r[mask]), 4),
+            "max_drawdown": round(max_drawdown(r[mask]), 4),
+            "sortino": round(sortino_ratio(r[mask]), 3),
+            "calmar": round(calmar_ratio(r[mask]), 3),
+            "avg_turnover": round(average_turnover(w[mask], w_drift[mask]), 4),
+            "concentration_hhi": round(herfindahl_concentration(w[mask]), 4),
         })
     return pd.DataFrame(rows).set_index("config")
 
@@ -84,10 +94,13 @@ def main() -> None:
     data_dir = Path(__file__).resolve().parents[1] / "data" / "raw"
     ds = PriceDataset.from_csv_dir(str(data_dir))
     full_returns = ds.returns
-    initial_window = 252
+    calendar = M2Calendar()
+    initial_window = initial_window_length(full_returns.index, calendar)
+    print(f"Initial training window per M2's calendar: {initial_window} trading days "
+          f"through {calendar.initial_training_end.date()}")
 
-    print("\n--- BIC by candidate state count (initial 252-day window, full "
-          "universe) -- context for the 2-state check below, per regime.py's "
+    print(f"\n--- BIC by candidate state count (initial {initial_window}-day window, "
+          "full universe) -- context for the 2-state check below, per regime.py's "
           "bic_for_state_counts: 3-state is meant to be justified against 2 "
           "and 4, not on interpretability alone ---")
     bic_results = bic_for_state_counts(full_returns.to_numpy()[:initial_window], candidates=(2, 3, 4))
@@ -101,6 +114,11 @@ def main() -> None:
         drop = spec["drop"]
         returns = full_returns.drop(columns=[drop]) if drop else full_returns
         tickers = [t for t in UNIVERSE if t != drop]
+        if ds.opens is not None:
+            co = ds.close_to_open_returns.drop(columns=[drop]) if drop else ds.close_to_open_returns
+            oc = ds.open_to_close_returns.drop(columns=[drop]) if drop else ds.open_to_close_returns
+        else:
+            co = oc = None
 
         print(f"\n--- {spec_name} (n_states={spec['n_states']}, "
               f"universe={tickers if drop else 'full ten-ETF'}) ---")
@@ -111,11 +129,17 @@ def main() -> None:
             initial_window=initial_window,
             alpha=0.97,
             constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+            close_to_open_returns=co,
+            open_to_close_returns=oc,
         )
         runtime = time.time() - t0
         print(f"runtime: {runtime:.1f}s over {len(result.dates)} trading days")
 
-        summary = summarize(result, returns, initial_window)
+        stages = stage_labels(pd.DatetimeIndex(result.dates), calendar)
+        final_test_mask = (stages == "final_test").to_numpy()
+        summary = summarize(result, returns, initial_window, final_test_mask)
+        print(f"FINAL TEST ({calendar.validation_end.date()} < date <= {calendar.final_test_end.date()}, "
+              f"{int(final_test_mask.sum())} days):")
         print(summary.to_string())
         all_summaries[spec_name] = summary
 
@@ -128,10 +152,10 @@ def main() -> None:
             "erc_blend_sharpe": summary.loc["erc_blend", "sharpe"],
         })
 
-        print(f"--- {spec_name}: paired block-bootstrap, erc_regime vs erc_baseline (Sharpe difference) ---")
+        print(f"--- {spec_name}: paired block-bootstrap on the final test, erc_regime vs erc_baseline (Sharpe difference) ---")
         ci = block_bootstrap_diff_ci(
-            result.portfolio_returns["erc_regime"],
-            result.portfolio_returns["erc_baseline"],
+            result.portfolio_returns["erc_regime"][final_test_mask],
+            result.portfolio_returns["erc_baseline"][final_test_mask],
             n_boot=1000, random_state=0,
         )
         print(f"point estimate: {ci['point_estimate']:.3f}, "
@@ -151,9 +175,9 @@ def main() -> None:
         summary.to_csv(out_dir / f"robustness_{spec_name}_summary.csv")
     effect_table.to_csv(out_dir / "robustness_regime_effect_by_spec.csv")
     print(f"\nSaved per-spec summaries and {out_dir / 'robustness_regime_effect_by_spec.csv'}")
-    print("\nThese are real-universe numbers under the pre-specified robustness")
-    print("checks from the M2/M3 scope note, still under the initial-window-fit,")
-    print("quarterly-refit, ERC-only pass documented in walkforward.py.")
+    print("\nThese are real-universe, FINAL-TEST-ONLY numbers under the")
+    print("pre-specified robustness checks from the M2/M3 scope note, still")
+    print("under the quarterly-refit, ERC-only pass documented in walkforward.py.")
 
 
 if __name__ == "__main__":
