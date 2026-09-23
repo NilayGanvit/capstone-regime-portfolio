@@ -76,12 +76,27 @@ corresponding tests skip cleanly rather than failing.
 
 ## Known scope limitations (intentional, not oversights)
 
-- **Scheduled model refit is implemented**, expanding window through F(t)
+- **Scheduled model refit is implemented**, expanding window through F(t),
   with state alignment via Bhattacharyya distance + Hungarian assignment
-  for label continuity. The EM iteration budget is capped at 50
-  iterations per refit; warm-start, incremental filtering, and other
-  performance mitigations are deferred pending real-data runtime
-  assessment.
+  for label continuity. Each refit's EM is warm-started from the previous
+  fit rather than a fresh random init (`refit_warm_start`, default True):
+  on the real ten-ETF universe, independent random inits landed in a
+  different-but-plausible local optimum most months, causing
+  `erc_regime`'s target weights/drawdown to whipsaw and making scheduled
+  refit underperform the frozen-parameter baseline. Warm-starting closed
+  most but not all of that gap; the rest came from refitting quarterly
+  rather than monthly (`refit_every_n_rebalances`, default 3) -- fewer
+  refits means fewer chances for the HMM to drift, and each refit sees
+  3x more new data. Two other mitigations were tried and measured
+  **not** to help on top of warm-starting, and are kept only as opt-in
+  toggles for reproducibility: EWMA-smoothing `state_covs` across refits
+  (`refit_state_cov_ewma`) made `erc_regime`'s Sharpe/drawdown worse, not
+  better -- diluting a state's covariance toward its own stale history
+  understates current risk right when regime identification is supposed
+  to matter; aligning every refit to a single fixed reference instead of
+  the previous fit (`refit_align_to_fixed_reference`) was a no-op --
+  once warm-starting keeps EM in the same basin, the alignment
+  permutation search never actually swaps states either way.
 - **The LSTM allocator isn't wired into this branch's walk-forward
   harness.** Its model, loss function, and end-to-end differentiable
   training loop (via `cvxpylayers`) are implemented and have been run on

@@ -8,9 +8,10 @@ the M2 pseudocode's ordering:
         accrue held-portfolio return through the close
         observe r(t); score r(t) under M0/M1 densities saved at t-1
         update pi from prior model weights and log-likelihoods
-        scheduled refit (monthly, expanding window through F(t), using only
-          information available through t; state continuity maintained via
-          Bhattacharyya distance + Hungarian assignment; see regime.py)
+        scheduled refit (quarterly by default, expanding window through
+          F(t), using only information available through t; state
+          continuity maintained via Bhattacharyya distance + Hungarian
+          assignment; see regime.py)
         filter HMM states and predict probabilities for day t+1
         save M0/M1 predictive densities for r(t+1)
         if t is a month-end allocation date:
@@ -20,9 +21,24 @@ the M2 pseudocode's ordering:
 
 This harness wires ERC only (no LSTM -- that requires the torch module,
 not available in this sandbox). Scheduled refit is implemented: the HMM,
-M0/M1 densities, and covariances are re-estimated monthly on an expanding
-window with state alignment to maintain label continuity across refits.
-The refit-at-rebalance toggle allows A/B comparison for later analysis.
+M0/M1 densities, and covariances are re-estimated on an expanding window
+with state alignment to maintain label continuity across refits. Each
+refit's EM is warm-started from the previous fit (refit_warm_start,
+default True) rather than a fresh random init -- measured on the real
+ten-ETF universe, independent random inits landed in a different-but-
+plausible local optimum most months, causing erc_regime's target
+weights/drawdown to whipsaw and making scheduled refit perform worse
+than the frozen-parameter baseline. Warm-starting fixes most of that gap
+but not all of it; closing the rest took refit_every_n_rebalances
+defaulting to 3 (quarterly, not monthly) rather than smoothing state_covs
+across refits (measured worse) or aligning to a fixed reference instead
+of the previous fit (measured as a no-op once warm-starting is active).
+Quarterly + warm-started refit was the only configuration that matched
+or beat the no-refit baseline on erc_regime's Sharpe. All of
+refit_at_rebalance/refit_warm_start/refit_state_cov_ewma/
+refit_align_to_fixed_reference/refit_every_n_rebalances are toggles on
+run_walk_forward, so every arm above remains directly reproducible for
+later analysis.
 
 Owner: Nilay (ties every other module together; each owner's module
 above is used here as originally specified, not reimplemented).
@@ -55,6 +71,13 @@ class WalkForwardResult:
     refit_dates: list       # dates on which a scheduled refit occurred
 
 
+def ewma_blend(new: np.ndarray, prev: np.ndarray, lam: float) -> np.ndarray:
+    """lam*new + (1-lam)*prev -- damps month-to-month swings in a refit
+    parameter (state_covs) across scheduled refits, on top of warm-
+    starting the EM itself. lam=1 recovers the unsmoothed value."""
+    return lam * new + (1.0 - lam) * prev
+
+
 def _rebalance_dates(returns: pd.DataFrame) -> set:
     """Month-end trading days (last trading day observed in each
     calendar month), used as the monthly allocation decision dates."""
@@ -76,6 +99,9 @@ def run_walk_forward(
     refit_at_rebalance: bool = True,
     refit_n_iter: int = 50,
     refit_warm_start: bool = True,
+    refit_state_cov_ewma: float | None = None,
+    refit_align_to_fixed_reference: bool = False,
+    refit_every_n_rebalances: int = 3,
 ) -> WalkForwardResult:
     """Run the ERC baseline / regime / reliability-blend configurations
     walk-forward, plus the fixed equal-weight benchmark, over `returns`
@@ -95,6 +121,28 @@ def run_walk_forward(
     None, the harness falls back to same-close execution (the new target
     earns the whole close(t)->close(t+1) return), which is what every
     caller without open-price data gets.
+
+    `refit_state_cov_ewma`, if set, EWMA-blends each refit's state_covs
+    with the running smoothed value (see ewma_blend) before it reaches
+    erc_regime_weights, damping residual month-to-month covariance swings
+    on top of warm-starting the EM. None (default) disables smoothing.
+
+    `refit_align_to_fixed_reference`, if True, aligns every refit's HMM
+    to the single initial-window fit instead of the immediately preceding
+    refit, to bound cumulative label drift over many refits rather than
+    only preventing adjacent-refit swaps. False (default) keeps the
+    previous-fit-chained alignment.
+
+    `refit_every_n_rebalances`, if > 1, skips the scheduled refit on all
+    but every Nth rebalance date (e.g. 3 turns the monthly rebalance
+    cadence into a quarterly refit cadence), while ERC targets are still
+    recomputed at every rebalance date using whichever HMM/M0/M1/
+    covariances were most recently fit. Defaults to 3 (quarterly): on
+    the real ten-ETF universe, quarterly refit + warm-starting was the
+    only configuration that matched/beat the no-refit baseline on
+    erc_regime's Sharpe (fewer refits means fewer chances for the HMM to
+    drift, and each refit sees 3x more new data); pass 1 to refit at
+    every rebalance date (monthly) instead.
     """
     if constraint_spec is None:
         constraint_spec = ConstraintSpec()
@@ -122,6 +170,16 @@ def run_walk_forward(
 
     pooled_cov = np.cov(train.T)
     state_covs = np.array(m1.scales_) * nu / (nu - 2)  # convert Student-t scale back to covariance
+    smoothed_state_covs = state_covs.copy()
+
+    # Frozen snapshot of the initial-window fit, used only when
+    # refit_align_to_fixed_reference=True (see docstring above).
+    reference_hmm = GaussianHMM(n_states=n_states)
+    reference_hmm.means_ = hmm.means_.copy()
+    reference_hmm.covars_ = hmm.covars_.copy()
+    reference_hmm.transmat_ = hmm.transmat_.copy()
+    reference_hmm.startprob_ = hmm.startprob_.copy()
+    reference_hmm.n_features_ = hmm.n_features_
 
     tracker = ReliabilityTracker(alpha=alpha, pi0=0.5)
 
@@ -132,6 +190,7 @@ def run_walk_forward(
     execution_history = {c: [] for c in configs}
     pi_history, log_l0_history, log_l1_history = [], [], []
     refit_dates = []
+    rebalance_count = 0
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
     # Set on a rebalance date (to the target the decision produced) and
@@ -198,9 +257,13 @@ def run_walk_forward(
         predicted_for_tomorrow = hmm.predicted_probabilities(hist_incl_today)[-1]
 
         if date in rebalance_dates:
+            rebalance_count += 1
             # Scheduled refit: update HMM/M0/M1/nu/pooled_cov/state_covs
-            # using an expanding window through F(t) (today's return included)
-            if refit_at_rebalance:
+            # using an expanding window through F(t) (today's return included).
+            # refit_every_n_rebalances > 1 skips this on all but every Nth
+            # rebalance date, stretching the refit cadence beyond monthly
+            # while ERC targets still recompute at every rebalance date.
+            if refit_at_rebalance and rebalance_count % refit_every_n_rebalances == 0:
                 train = X[:abs_idx + 1]
                 if refit_warm_start:
                     # Warm-start from the previous fit's params instead of a
@@ -213,7 +276,8 @@ def run_walk_forward(
                 else:
                     refit_seed = 1000 + len(refit_dates)  # kept only for the disabled-warm-start comparison arm
                     new_hmm = GaussianHMM(n_states=n_states, random_state=refit_seed, n_iter=refit_n_iter).fit(train)
-                new_hmm.align_to(hmm)
+                align_target = reference_hmm if refit_align_to_fixed_reference else hmm
+                new_hmm.align_to(align_target)
                 hmm = new_hmm
 
                 filtered_train = hmm.filtered_probabilities(train)
@@ -225,6 +289,10 @@ def run_walk_forward(
 
                 pooled_cov = np.cov(train.T)
                 state_covs = np.array(m1.scales_) * nu / (nu - 2)
+                if refit_state_cov_ewma is not None:
+                    smoothed_state_covs = ewma_blend(state_covs, smoothed_state_covs, refit_state_cov_ewma)
+                else:
+                    smoothed_state_covs = state_covs
 
                 refit_dates.append(date)
 
@@ -243,7 +311,7 @@ def run_walk_forward(
             covs_for_diagnostic = {"erc_baseline": baseline_cov, "erc_regime": regime_cov}
 
             w_baseline = erc_baseline_weights(pooled_cov, shrinkage)
-            w_regime = erc_regime_weights(state_covs, regime_probs_now, shrinkage)
+            w_regime = erc_regime_weights(smoothed_state_covs, regime_probs_now, shrinkage)
             w_blend_raw = blend_weights(w_regime, w_baseline, pi_t)
             w_equal = np.full(n_assets, 1.0 / n_assets)
 

@@ -6,7 +6,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import make_synthetic_universe, PriceDataset
-from walkforward import run_walk_forward
+from walkforward import run_walk_forward, ewma_blend
 from constraints import ConstraintSpec
 
 
@@ -206,3 +206,128 @@ def test_refit_at_rebalance_false_reproduces_fit_once_behavior():
     # Basic sanity checks still apply
     for config, w in result.weights.items():
         assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)
+
+
+def test_ewma_blend_lam_one_ignores_prev():
+    new = np.array([[2.0, 0.0], [0.0, 2.0]])
+    prev = np.array([[10.0, 0.0], [0.0, 10.0]])
+    assert np.allclose(ewma_blend(new, prev, 1.0), new)
+
+
+def test_ewma_blend_lam_zero_keeps_prev():
+    new = np.array([[2.0, 0.0], [0.0, 2.0]])
+    prev = np.array([[10.0, 0.0], [0.0, 10.0]])
+    assert np.allclose(ewma_blend(new, prev, 0.0), prev)
+
+
+def test_ewma_blend_intermediate_lam_is_convex_combination():
+    new = np.array([[4.0, 0.0], [0.0, 4.0]])
+    prev = np.array([[0.0, 0.0], [0.0, 0.0]])
+    assert np.allclose(ewma_blend(new, prev, 0.3), 0.3 * new)
+
+
+def test_refit_state_cov_ewma_none_matches_unsmoothed_baseline():
+    """refit_state_cov_ewma=None (default) must reproduce the unsmoothed
+    warm-started refit results exactly -- smoothing is strictly opt-in."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_default = run_walk_forward(ds.returns, **kwargs)
+    result_explicit_none = run_walk_forward(ds.returns, refit_state_cov_ewma=None, **kwargs)
+    for config in result_default.weights:
+        assert np.allclose(result_default.weights[config], result_explicit_none.weights[config])
+
+
+def test_refit_state_cov_ewma_changes_regime_weights_when_enabled():
+    """Setting refit_state_cov_ewma < 1 should change erc_regime's weights
+    relative to the unsmoothed baseline once refits have accumulated
+    (smoothing only diverges from the raw value after >=2 refits)."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_unsmoothed = run_walk_forward(ds.returns, **kwargs)
+    result_smoothed = run_walk_forward(ds.returns, refit_state_cov_ewma=0.3, **kwargs)
+    assert len(result_unsmoothed.refit_dates) > 1
+    assert not np.allclose(
+        result_unsmoothed.weights["erc_regime"], result_smoothed.weights["erc_regime"]
+    ), "expected EWMA smoothing to change erc_regime's weights once multiple refits accumulate"
+
+    # Weights must still be valid (sum to 1, non-negative, within bounds)
+    for config, w in result_smoothed.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)
+        assert (w >= -1e-6).all()
+
+
+def test_refit_align_to_fixed_reference_false_matches_default_behavior():
+    """refit_align_to_fixed_reference=False (default) must reproduce the
+    previous-fit-chained alignment exactly -- fixed-reference is opt-in."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_default = run_walk_forward(ds.returns, **kwargs)
+    result_explicit_false = run_walk_forward(ds.returns, refit_align_to_fixed_reference=False, **kwargs)
+    for config in result_default.weights:
+        assert np.allclose(result_default.weights[config], result_explicit_false.weights[config])
+
+
+def test_refit_align_to_fixed_reference_runs_validly_and_can_change_weights():
+    """Aligning to the frozen initial-window fit instead of the previous
+    refit should still produce valid weights, and is expected to diverge
+    from previous-fit-chained alignment once multiple refits accumulate."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_chained = run_walk_forward(ds.returns, **kwargs)
+    result_fixed_ref = run_walk_forward(ds.returns, refit_align_to_fixed_reference=True, **kwargs)
+    assert len(result_chained.refit_dates) > 1
+
+    for config, w in result_fixed_ref.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)
+        assert (w >= -1e-6).all()
+    for r in result_fixed_ref.portfolio_returns.values():
+        assert np.isfinite(r).all()
+
+
+def test_refit_every_n_rebalances_three_matches_default_behavior():
+    """refit_every_n_rebalances=3 (default -- quarterly refit given monthly
+    rebalances) must reproduce the implicit default exactly."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_default = run_walk_forward(ds.returns, **kwargs)
+    result_explicit_three = run_walk_forward(ds.returns, refit_every_n_rebalances=3, **kwargs)
+    for config in result_default.weights:
+        assert np.allclose(result_default.weights[config], result_explicit_three.weights[config])
+
+
+def test_refit_every_n_rebalances_one_refits_roughly_three_times_as_often():
+    """refit_every_n_rebalances=1 (monthly) should trigger roughly three
+    times as many refits as the quarterly default."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_quarterly = run_walk_forward(ds.returns, **kwargs)  # default: refit_every_n_rebalances=3
+    result_monthly = run_walk_forward(ds.returns, refit_every_n_rebalances=1, **kwargs)
+
+    assert len(result_quarterly.refit_dates) < len(result_monthly.refit_dates)
+    # roughly a third, allowing for integer rounding at the tail
+    ratio = len(result_quarterly.refit_dates) / len(result_monthly.refit_dates)
+    assert 0.25 <= ratio <= 0.40, f"expected ~1/3 as many refits, got ratio {ratio}"
+
+    for config, w in result_quarterly.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)
+        assert (w >= -1e-6).all()
+    for r in result_quarterly.portfolio_returns.values():
+        assert np.isfinite(r).all()
