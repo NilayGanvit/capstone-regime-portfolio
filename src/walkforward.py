@@ -109,11 +109,17 @@ def run_walk_forward(
 
     for t_idx, date in enumerate(walk_dates):
         abs_idx = initial_window + t_idx
-        r_t = X[abs_idx]  # realized return for this day, F(t)
+        r_t = X[abs_idx]  # realized log return for this day, F(t)
+
+        # Per-asset simple return, since log returns aren't linear across
+        # assets: the portfolio return has to be the weighted sum of simple
+        # returns, not of log returns (evaluation.py compounds this series
+        # via cumprod(1+r), which is only valid for simple returns).
+        simple_r_t = np.exp(r_t) - 1.0
 
         # Held-portfolio return accrual, using *previous* period's final weights
         for c in configs:
-            port_ret_out[c].append(float(prev_weights[c] @ r_t))
+            port_ret_out[c].append(float(prev_weights[c] @ simple_r_t))
 
         # Score r_t under M0/M1 densities computed using only information
         # through t-1 (filtered probs from history up to abs_idx, i.e.
