@@ -70,9 +70,9 @@ def herfindahl_concentration(weights: np.ndarray) -> float:
 
 
 def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
-    """Mean one-way turnover across the backtest, using each period's
-    drifted (pre-trade) holdings as the reference -- the same definition
-    used in constraints.py and the LSTM training loss."""
+    """Mean gross (round-trip) turnover across the backtest, using each
+    period's drifted (pre-trade) holdings as the reference -- the same
+    definition used in constraints.py and the LSTM training loss."""
     return float(np.mean(np.sum(np.abs(weights - drifted_weights), axis=1)))
 
 

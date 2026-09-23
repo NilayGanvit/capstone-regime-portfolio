@@ -28,7 +28,7 @@ from scipy.optimize import minimize
 class ConstraintSpec:
     lower: float = 0.0       # long-only
     upper: float = 0.30      # per-asset weight cap
-    max_turnover: float = 0.50  # sum(|w_new - w_drifted|), one-way
+    max_turnover: float = 0.50  # sum(|w_new - w_drifted|), gross/round-trip (buys+sells, not halved)
 
 
 def drift_weights(w_prev: np.ndarray, gross_returns: np.ndarray) -> np.ndarray:
@@ -107,10 +107,15 @@ def project_onto_constraints(
 
 
 def turnover(w_new: np.ndarray, w_drifted: np.ndarray) -> float:
-    """One-way turnover: sum of absolute weight changes relative to the
-    drifted (pre-trade) holdings -- the same definition used for both the
+    """Gross (round-trip) turnover: sum of absolute weight changes relative
+    to the drifted (pre-trade) holdings -- buys plus sells combined, not
+    halved. This is *not* the textbook "one-way" turnover ratio (= buys =
+    sells = half this sum); it's the same definition used for both the
     portfolio constraint and the LSTM training-loss turnover penalty
-    (M2's explicit requirement that these must match)."""
+    (M2's explicit requirement that these must match). Because a fully
+    invested portfolio's buys equal its sells, a per-side transaction-cost
+    rate (e.g. 5bp per side) multiplies this gross figure directly --
+    cost_t = tc_bps_per_side * turnover(...) -- with no extra factor of 2."""
     return float(np.sum(np.abs(w_new - w_drifted)))
 
 

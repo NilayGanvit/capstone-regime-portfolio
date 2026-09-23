@@ -38,7 +38,7 @@ from regime import GaussianHMM
 from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu
 from reliability import ReliabilityTracker, blend_weights
 from allocation_erc import erc_baseline_weights, erc_regime_weights
-from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn
+from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
 
 
 @dataclass
@@ -49,6 +49,7 @@ class WalkForwardResult:
     pi_history: list
     log_l0_history: list
     log_l1_history: list
+    binding_constraints_history: dict  # config_name -> list of {date, lower_bound_binding, upper_bound_binding, turnover_binding, turnover}, one entry per rebalance
 
 
 def _rebalance_dates(returns: pd.DataFrame) -> set:
@@ -100,6 +101,7 @@ def run_walk_forward(
     configs = ["erc_baseline", "erc_regime", "erc_blend", "equal_weight"]
     weights_out = {c: [] for c in configs}
     port_ret_out = {c: [] for c in configs}
+    binding_history = {c: [] for c in configs}
     pi_history, log_l0_history, log_l1_history = [], [], []
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
@@ -155,6 +157,10 @@ def run_walk_forward(
                 w_final = project_onto_constraints(raw_targets[c], w_drift, constraint_spec)
                 prev_weights[c] = w_final
                 weights_out[c].append(w_final)
+                binding = binding_constraints(w_final, w_drift, constraint_spec)
+                binding["date"] = date
+                binding["turnover"] = turnover_fn(w_final, w_drift)
+                binding_history[c].append(binding)
         else:
             for c in configs:
                 w_drift = drift_weights(prev_weights[c], np.exp(r_t))
@@ -168,4 +174,5 @@ def run_walk_forward(
         pi_history=pi_history,
         log_l0_history=log_l0_history,
         log_l1_history=log_l1_history,
+        binding_constraints_history=binding_history,
     )
