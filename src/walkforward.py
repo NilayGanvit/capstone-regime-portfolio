@@ -37,7 +37,7 @@ import pandas as pd
 from regime import GaussianHMM
 from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu
 from reliability import ReliabilityTracker, blend_weights
-from allocation_erc import erc_baseline_weights, erc_regime_weights, regularize_covariance
+from allocation_erc import erc_baseline_weights, erc_regime_weights
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn
 
 
@@ -92,7 +92,7 @@ def run_walk_forward(
     m0 = M0PooledStudentT(nu=nu).fit(train)
     m1 = M1RegimeMixtureStudentT(nu=nu).fit(train, filtered_train)
 
-    pooled_cov = regularize_covariance(np.cov(train.T), shrinkage)
+    pooled_cov = np.cov(train.T)
     state_covs = np.array(m1.scales_) * nu / (nu - 2)  # convert Student-t scale back to covariance
 
     tracker = ReliabilityTracker(alpha=alpha, pi0=0.5)
