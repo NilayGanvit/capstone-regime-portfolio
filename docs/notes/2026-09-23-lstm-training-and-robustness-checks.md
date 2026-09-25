@@ -7,6 +7,29 @@
 
 This covers the two items from the README's "Next steps." One is routine; the other changes what we can currently claim about the regime effect, so please read that part before we write anything into M3/M4 about it.
 
+---
+
+**UPDATE — 2026-09-26 (Nilay).** Section 2 below is superseded — flagged by Silvio as predating the current CSVs. Between then and now: the return-compounding bug got fixed (log returns were being summed instead of simple returns), the initial-fit window changed from an arbitrary 252 days to the actual M2-calendar-derived window (~1,946 days, through 2014-12-31), and reporting is now final-test-only (2019-01-01–2026-08-31) instead of pooled across the whole 2007–2025 sample. The section below is kept as-is for the record; **use the table right here, not the one further down**, if citing this note.
+
+Current numbers (`outputs/robustness_regime_effect_by_spec.csv`, final test only):
+
+| specification | regime effect (erc_regime − erc_baseline, Sharpe) | reliability effect (erc_blend − erc_regime) |
+|---|---|---|
+| primary (3-state, full universe) | +0.011 (90% bootstrap CI: [-0.055, 0.066] — not distinguishable from zero) | +0.004 |
+| 2-state | **+0.042** (was -0.188 — sign flip) | -0.005 |
+| no-VNQ | -0.003 (was -0.073 — much smaller) | +0.003 |
+| no-HYG | -0.043 (was -0.116 — smaller, same sign) | -0.001 |
+
+What changed and what didn't:
+- **The bottom-line conclusion is unchanged**: the regime effect is still small and not distinguishable from zero, and it's still `equal_weight` that leads on Sharpe across every spec, not any ERC variant.
+- **The supporting evidence changed enough that the old table would mislead if cited as-is.** 2-state no longer "flips the sign" — it's now positive, same direction as the primary spec. Only no-VNQ/no-HYG still go negative, and by less than before.
+- **The BIC argument reverses.** Old note said BIC (on the 252-day window) favored *fewer* states. On the correct ~1,946-day window it's the opposite: `n_states=2: BIC=-140902.3`, `n_states=3: BIC=-142113.2`, `n_states=4: BIC=-142171.0` — more negative is better, so BIC now favors *more* states, which no longer supports the "don't bother with 3 over 2" argument the old note made.
+- **The reliability-effect story evaporates.** Old note's "blend consistently pulls back toward baseline" (+0.096, +0.058, +0.055) doesn't hold up — new reliability effects are all near zero (-0.005, +0.003, -0.001). That was a real secondary finding in the old numbers; it isn't one anymore.
+
+Same caveat as before: this is still the initial-window-fit-plus-scheduled-refit, ERC-only pass (see `outputs/trial_log.csv` for the still-open refit-cadence question), gross of transaction costs (see `outputs/real_data_cost_sensitivity.csv` for the primary spec's net-of-cost numbers — the robustness script doesn't yet apply the cost ledger to the alternative specs).
+
+---
+
 ## 1. LSTM end-to-end training loop — implemented
 
 `allocation_lstm.py` now has the differentiable optimization layer we'd flagged as an open decision, plus the actual training loop.
