@@ -34,6 +34,17 @@ def risk_contributions(w: np.ndarray, cov: np.ndarray) -> np.ndarray:
     return w * (cov @ w)
 
 
+def risk_contribution_shares(w: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    """Each asset's risk contribution as a share of total portfolio
+    variance (sums to 1) -- comparable directly against equal target
+    budgets (1/n), per M2/M3's "verify the degree of conformance of the
+    actually constructed portfolio with the expected risk budgets."
+    """
+    rc = risk_contributions(w, cov)
+    port_var = float(w @ cov @ w)
+    return rc / port_var
+
+
 def solve_risk_budget(
     cov: np.ndarray,
     target_budgets: np.ndarray | None = None,

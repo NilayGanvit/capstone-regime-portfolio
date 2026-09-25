@@ -37,7 +37,7 @@ import pandas as pd
 from regime import GaussianHMM
 from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu
 from reliability import ReliabilityTracker, blend_weights
-from allocation_erc import erc_baseline_weights, erc_regime_weights
+from allocation_erc import erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
 
 
@@ -49,7 +49,8 @@ class WalkForwardResult:
     pi_history: list
     log_l0_history: list
     log_l1_history: list
-    binding_constraints_history: dict  # config_name -> list of {date, lower_bound_binding, upper_bound_binding, turnover_binding, turnover}, one entry per rebalance
+    binding_constraints_history: dict  # config_name -> list of {date, lower_bound_binding, upper_bound_binding, turnover_binding, turnover, risk_contribution_pre_constraint_max_dev, risk_contribution_post_constraint_max_dev}, one entry per rebalance
+    execution_history: dict  # config_name -> list of {date, turnover}, one entry per rebalance, dated on the day the trade actually executes (== decision date if no open-price data, decision date + 1 trading day otherwise) -- the reference series for transaction-cost accounting
 
 
 def _rebalance_dates(returns: pd.DataFrame) -> set:
@@ -123,6 +124,7 @@ def run_walk_forward(
     weights_out = {c: [] for c in configs}
     port_ret_out = {c: [] for c in configs}
     binding_history = {c: [] for c in configs}
+    execution_history = {c: [] for c in configs}
     pi_history, log_l0_history, log_l1_history = [], [], []
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
@@ -153,12 +155,13 @@ def run_walk_forward(
             simple_oc_t = np.exp(OC[abs_idx]) - 1.0
             for c in configs:
                 old_w = prev_weights[c]
-                new_w = pending_execution[c]
+                new_w = pending_execution[c]["target"]
                 leg_overnight = 1.0 + float(old_w @ simple_co_t)
                 leg_intraday = 1.0 + float(new_w @ simple_oc_t)
                 port_ret_out[c].append(leg_overnight * leg_intraday - 1.0)
                 prev_weights[c] = drift_weights(new_w, np.exp(OC[abs_idx]))
                 weights_out[c].append(prev_weights[c])
+                execution_history[c].append({"date": date, "turnover": pending_execution[c]["turnover"]})
                 pending_execution[c] = None
         else:
             # Held-portfolio return accrual, using *previous* period's final weights
@@ -191,6 +194,15 @@ def run_walk_forward(
         if date in rebalance_dates:
             regime_probs_now = predicted_for_tomorrow  # one-step-ahead, using F(t)
 
+            baseline_cov = regularize_covariance(pooled_cov, shrinkage)
+            regime_mixture_cov = np.tensordot(regime_probs_now, state_covs, axes=(0, 0))
+            regime_cov = regularize_covariance(regime_mixture_cov, shrinkage)
+            # Same regularized covariances erc_baseline_weights/erc_regime_weights
+            # solve against, recomputed here (cheap, deterministic) only to
+            # score risk-contribution conformance below -- not to re-derive
+            # the weights themselves.
+            covs_for_diagnostic = {"erc_baseline": baseline_cov, "erc_regime": regime_cov}
+
             w_baseline = erc_baseline_weights(pooled_cov, shrinkage)
             w_regime = erc_regime_weights(state_covs, regime_probs_now, shrinkage)
             w_blend_raw = blend_weights(w_regime, w_baseline, pi_t)
@@ -212,7 +224,28 @@ def run_walk_forward(
                 weights_out[c].append(w_final)
                 binding = binding_constraints(w_final, w_drift, constraint_spec)
                 binding["date"] = date
-                binding["turnover"] = turnover_fn(w_final, w_drift)
+                turnover_value = turnover_fn(w_final, w_drift)
+                binding["turnover"] = turnover_value
+
+                # Risk-contribution conformance (M2/M3: "we may not obtain
+                # exactly equal risk contributions... we will therefore
+                # also verify the degree of conformance"). Only meaningful
+                # for erc_baseline/erc_regime, which are solved against an
+                # explicit equal-budget target and a single covariance;
+                # erc_blend mixes two different covariance-based solutions
+                # and equal_weight was never risk-budgeted, so neither has
+                # one well-defined target to score against.
+                if c in covs_for_diagnostic:
+                    target_share = 1.0 / n_assets
+                    cov_c = covs_for_diagnostic[c]
+                    pre_dev = risk_contribution_shares(raw_targets[c], cov_c) - target_share
+                    post_dev = risk_contribution_shares(w_final, cov_c) - target_share
+                    binding["risk_contribution_pre_constraint_max_dev"] = float(np.max(np.abs(pre_dev)))
+                    binding["risk_contribution_post_constraint_max_dev"] = float(np.max(np.abs(post_dev)))
+                else:
+                    binding["risk_contribution_pre_constraint_max_dev"] = None
+                    binding["risk_contribution_post_constraint_max_dev"] = None
+
                 binding_history[c].append(binding)
                 if have_open_data:
                     # Execute at tomorrow's open (see the split-leg handling
@@ -220,9 +253,10 @@ def run_walk_forward(
                     # (still earning tonight's overnight leg), and w_final
                     # only takes effect once that leg has been scored.
                     prev_weights[c] = w_drift
-                    pending_execution[c] = w_final
+                    pending_execution[c] = {"target": w_final, "turnover": turnover_value}
                 else:
                     prev_weights[c] = w_final
+                    execution_history[c].append({"date": date, "turnover": turnover_value})
         elif not executed_today:
             for c in configs:
                 w_drift = drift_weights(prev_weights[c], np.exp(r_t))
@@ -237,4 +271,5 @@ def run_walk_forward(
         log_l0_history=log_l0_history,
         log_l1_history=log_l1_history,
         binding_constraints_history=binding_history,
+        execution_history=execution_history,
     )

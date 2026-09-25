@@ -69,6 +69,43 @@ def herfindahl_concentration(weights: np.ndarray) -> float:
     return float(np.mean(np.sum(w ** 2, axis=1)))
 
 
+def net_of_cost_returns(
+    dates: list,
+    gross_returns: np.ndarray,
+    execution_history: list,
+    fee_bps: float,
+) -> np.ndarray:
+    """Deduct transaction costs from `gross_returns` (run_walk_forward
+    itself charges no fee) on the days a trade actually executes, per
+    M2/M3: "a 5 basis point fee on every purchase and sale... including
+    the initial investment... [computed by] taking the fee rate into
+    account only once on the total value of trades, not twice." Cost on
+    an execution day is fee_bps/10000 * turnover, where `turnover` is the
+    gross (buy+sell, not halved) turnover already used everywhere else in
+    this codebase -- applying the fee rate once to that gross figure is
+    exactly "once on the total value of trades," with no extra factor of
+    2 (see constraints.turnover's docstring).
+
+    `dates`/`gross_returns` are one config's WalkForwardResult.dates and
+    WalkForwardResult.portfolio_returns[config]; `execution_history` is
+    that same config's WalkForwardResult.execution_history entry (dated
+    on the actual execution day, not the decision day, once open-price
+    execution is enabled). Because weights don't depend on the fee rate,
+    this can be called repeatedly at different `fee_bps` from a single
+    run_walk_forward call -- e.g. for the 5/10/25 bps sensitivity M2
+    calls for -- without re-running the walk-forward itself.
+    """
+    dates = list(dates)
+    date_to_idx = {d: i for i, d in enumerate(dates)}
+    net = np.asarray(gross_returns, dtype=float).copy()
+    fee_rate = fee_bps / 10_000.0
+    for entry in execution_history:
+        idx = date_to_idx.get(entry["date"])
+        if idx is not None:
+            net[idx] -= fee_rate * entry["turnover"]
+    return net
+
+
 def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
     """Mean gross (round-trip) turnover across the backtest, using each
     period's drifted (pre-trade) holdings as the reference -- the same
@@ -107,6 +144,27 @@ def block_bootstrap_diff_ci(
     alpha = 1 - ci
     lo, hi = np.quantile(diffs, [alpha / 2, 1 - alpha / 2])
     return {"point_estimate": point_estimate, "ci_low": float(lo), "ci_high": float(hi), "ci_level": ci}
+
+
+def n_trials_from_log(path: str) -> int:
+    """Count the specifications actually evaluated for *performance-driven
+    selection*, from the auditable trial log M2/M3 calls for ("we will
+    record the number of state specifications, feature configurations,
+    windows, hyperparameter sets and portfolio variants evaluated").
+
+    The log (see outputs/trial_log.csv) also records plain correctness
+    fixes -- e.g. the initial-window length was simply wrong relative to
+    M2's calendar, not one option chosen from several valid ones -- and
+    those are marked `counts_toward_dsr_trials=False` so they don't
+    inflate the trial count DSR uses to judge selection bias. Only rows
+    marked True (an alternative that was actually compared against
+    others on measured performance) are counted here.
+    """
+    import csv
+
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    return sum(1 for row in rows if row["counts_toward_dsr_trials"].strip().lower() == "true")
 
 
 def deflated_sharpe_ratio(

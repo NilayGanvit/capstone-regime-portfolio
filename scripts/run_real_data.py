@@ -28,6 +28,21 @@ run after the M2 calendar was fixed) is reported separately again and
 excluded from both, since scoring it as part of the "final test" would
 retroactively widen a window that was supposed to be frozen.
 
+Transaction costs, DSR, and the trial log: run_walk_forward itself
+charges no fee (weights don't depend on the fee rate), so this script
+derives net-of-cost returns at 5/10/25 bps from one run via
+evaluation.net_of_cost_returns and reports the 5 bps figure (M2's
+proposed baseline) as the headline final-test number, with 10/25 bps as
+a documented sensitivity table -- not three separate walk-forward runs.
+The Deflated Sharpe Ratio uses the 5 bps net final-test Sharpe and
+n_trials read from outputs/trial_log.csv (evaluation.n_trials_from_log),
+which only counts rows recording an actual performance-driven
+comparison, not plain correctness fixes -- see that file's own notes
+column, including the still-open refit-cadence question flagged by
+Silvio's M3 review (2026-09-25): quarterly refit was chosen by comparing
+Sharpe over a sample that includes the designated final-test window, so
+it is not yet a validation-only-derived default.
+
 Usage:
     python scripts/run_real_data.py
 """
@@ -47,14 +62,20 @@ from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
     herfindahl_concentration, average_turnover, block_bootstrap_diff_ci,
+    net_of_cost_returns, deflated_sharpe_ratio, n_trials_from_log,
 )
+
+FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
+TRIAL_LOG_PATH = Path(__file__).resolve().parents[1] / "outputs" / "trial_log.csv"
 
 
 def binding_constraints_dataframe(binding_history: list, calendar: M2Calendar, stage: str) -> pd.DataFrame:
     """Flatten one config's binding_constraints_history (per M2/M3's "we
-    will report on which constraints are binding") into a row-per-rebalance
-    table restricted to `stage` ('validation' or 'final_test'), with asset
-    indices translated to tickers for readability."""
+    will report on which constraints are binding," plus "verify the
+    degree of conformance... with the expected risk budgets") into a
+    row-per-rebalance table restricted to `stage` ('validation' or
+    'final_test'), with asset indices translated to tickers for
+    readability."""
     rows = []
     for entry in binding_history:
         date = entry["date"]
@@ -66,8 +87,51 @@ def binding_constraints_dataframe(binding_history: list, calendar: M2Calendar, s
             "turnover_binding": entry["turnover_binding"],
             "lower_bound_binding": ",".join(UNIVERSE[i] for i in entry["lower_bound_binding"]),
             "upper_bound_binding": ",".join(UNIVERSE[i] for i in entry["upper_bound_binding"]),
+            "risk_contribution_pre_constraint_max_dev": entry["risk_contribution_pre_constraint_max_dev"],
+            "risk_contribution_post_constraint_max_dev": entry["risk_contribution_post_constraint_max_dev"],
         })
     return pd.DataFrame(rows)
+
+
+def transaction_log_dataframe(execution_history: list, calendar: M2Calendar, stage: str, fee_bps: float) -> pd.DataFrame:
+    """Row-per-execution transaction log restricted to `stage`, per M2's
+    "fees will be debited from portfolio equity and entered in the
+    transaction log as a decrease in NAV." `date` here is the actual
+    execution date (== decision date with no open-price data, decision
+    date + 1 trading day once next-open execution is enabled), not the
+    rebalance decision date."""
+    rows = []
+    for entry in execution_history:
+        date = entry["date"]
+        if stage_labels(pd.DatetimeIndex([date]), calendar).iloc[0] != stage:
+            continue
+        rows.append({
+            "date": date,
+            "turnover": round(entry["turnover"], 4),
+            "fee_bps": fee_bps,
+            "cost_as_fraction_of_nav": round(fee_bps / 10_000.0 * entry["turnover"], 6),
+        })
+    return pd.DataFrame(rows)
+
+
+def cost_sensitivity_table(result, stages: pd.Series) -> pd.DataFrame:
+    """Sharpe/CAGR at each of FEE_BPS_SENSITIVITY, final-test only, for
+    every config -- derived from the same walk-forward run via
+    net_of_cost_returns rather than three separate re-runs, since weights
+    don't depend on the fee rate."""
+    final_test_mask = (stages == "final_test").to_numpy()
+    rows = []
+    for config in result.portfolio_returns:
+        gross = result.portfolio_returns[config]
+        for fee_bps in FEE_BPS_SENSITIVITY:
+            net = net_of_cost_returns(result.dates, gross, result.execution_history[config], fee_bps)
+            rows.append({
+                "config": config,
+                "fee_bps": fee_bps,
+                "sharpe_net": round(sharpe_ratio(net[final_test_mask]), 3),
+                "cagr_net": round(cagr(net[final_test_mask]), 4),
+            })
+    return pd.DataFrame(rows).set_index(["config", "fee_bps"])
 
 
 def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray) -> pd.DataFrame:
@@ -100,6 +164,9 @@ def main() -> None:
     print("=" * 78)
     print("REAL-DATA RUN -- actual ten-ETF universe, 2007-04-11 onward")
     print("=" * 78)
+
+    out_dir = Path(__file__).resolve().parents[1] / "outputs"
+    out_dir.mkdir(exist_ok=True)
 
     data_dir = Path(__file__).resolve().parents[1] / "data" / "raw"
     ds = PriceDataset.from_csv_dir(str(data_dir))
@@ -151,8 +218,6 @@ def main() -> None:
         summary = summarize(result, returns, initial_window, mask)
         print(summary.to_string())
         if stage == "final_test":
-            out_dir = Path(__file__).resolve().parents[1] / "outputs"
-            out_dir.mkdir(exist_ok=True)
             summary.to_csv(out_dir / "real_data_summary.csv")
             print(f"Saved to {out_dir / 'real_data_summary.csv'}")
         print()
@@ -168,12 +233,33 @@ def main() -> None:
         print(f"point estimate: {ci['point_estimate']:.3f}, "
               f"{int(ci['ci_level']*100)}% CI: [{ci['ci_low']:.3f}, {ci['ci_high']:.3f}]")
 
+    if final_test_mask.any():
+        print("\n--- Transaction costs: 5/10/25 bps sensitivity, final test only (M2's proposed baseline plus sensitivity checks) ---")
+        cost_table = cost_sensitivity_table(result, stages)
+        print(cost_table.to_string())
+        cost_table.to_csv(out_dir / "real_data_cost_sensitivity.csv")
+        print(f"Saved to {out_dir / 'real_data_cost_sensitivity.csv'}")
+
+        print("\n--- Transaction log (final test, 5 bps -- M2's proposed baseline) ---")
+        for config in result.execution_history:
+            tx_log = transaction_log_dataframe(result.execution_history[config], calendar, "final_test", fee_bps=5.0)
+            tx_log.to_csv(out_dir / f"real_data_transaction_log_{config}.csv", index=False)
+        print(f"Saved per-config detail to {out_dir}/real_data_transaction_log_<config>.csv")
+
+        print("\n--- Deflated Sharpe Ratio, final test, net of 5 bps costs ---")
+        n_trials = n_trials_from_log(str(TRIAL_LOG_PATH))
+        print(f"n_trials = {n_trials} (from {TRIAL_LOG_PATH.name}, performance-driven comparisons only -- see that file's notes column)")
+        for config in result.portfolio_returns:
+            net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
+            net_final = net_5bps[final_test_mask]
+            sr = sharpe_ratio(net_final)
+            dsr = deflated_sharpe_ratio(observed_sharpe=sr, returns=net_final, n_trials=n_trials)
+            print(f"{config}: net-of-cost Sharpe={sr:.3f}, DSR={dsr:.3f}")
+
     print("\n--- Reliability path pi_t (full walk-forward history) ---")
     pi = np.array(result.pi_history)
     print(f"mean pi_t: {pi.mean():.3f}  min: {pi.min():.3f}  max: {pi.max():.3f}")
 
-    out_dir = Path(__file__).resolve().parents[1] / "outputs"
-    out_dir.mkdir(exist_ok=True)
     pd.Series(result.pi_history, index=result.dates, name="pi_t").to_csv(out_dir / "real_data_pi_path.csv")
 
     print("\n--- Binding constraints on final-test rebalances (M2/M3: 'we will "
@@ -191,7 +277,10 @@ def main() -> None:
           "no-scheduled-refit, ERC-only pass documented in walkforward.py -- read that "
           "module's docstring before citing specific figures in M3/M4. Only the "
           "FINAL TEST block above is the number to cite; VALIDATION exists for "
-          "development and must not be reported as an out-of-sample result.")
+          "development and must not be reported as an out-of-sample result. "
+          "real_data_summary.csv is GROSS of transaction costs -- the 5 bps net-of-cost "
+          "figure (M2's proposed baseline) is in real_data_cost_sensitivity.csv and the "
+          "DSR line above, not in real_data_summary.csv.")
 
 
 if __name__ == "__main__":

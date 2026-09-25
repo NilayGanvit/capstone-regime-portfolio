@@ -122,3 +122,49 @@ def test_open_execution_with_a_real_gap_changes_returns_but_not_first_turnover()
         assert np.allclose(with_opens.weights[config].sum(axis=1), 1.0, atol=1e-6)
         assert (with_opens.weights[config] >= -1e-6).all()
         assert np.isfinite(with_opens.portfolio_returns[config]).all()
+
+
+def test_risk_contribution_diagnostic_reported_for_erc_configs_only():
+    ds, _ = make_synthetic_universe(n_days=400, seed=5)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252)
+    for config in ("erc_baseline", "erc_regime"):
+        for entry in result.binding_constraints_history[config]:
+            assert entry["risk_contribution_pre_constraint_max_dev"] is not None
+            assert entry["risk_contribution_pre_constraint_max_dev"] >= 0.0
+            assert entry["risk_contribution_post_constraint_max_dev"] >= 0.0
+    for config in ("erc_blend", "equal_weight"):
+        for entry in result.binding_constraints_history[config]:
+            assert entry["risk_contribution_pre_constraint_max_dev"] is None
+            assert entry["risk_contribution_post_constraint_max_dev"] is None
+
+
+def test_execution_history_dated_same_day_as_decision_without_open_data():
+    ds, _ = make_synthetic_universe(n_days=400, seed=5)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252)
+    for config in result.execution_history:
+        assert len(result.execution_history[config]) == len(result.binding_constraints_history[config])
+        for exec_entry, decision_entry in zip(result.execution_history[config], result.binding_constraints_history[config]):
+            assert exec_entry["date"] == decision_entry["date"]
+            assert np.isclose(exec_entry["turnover"], decision_entry["turnover"])
+
+
+def test_execution_history_dated_one_day_after_decision_with_open_data():
+    ds = _synthetic_dataset_with_opens(n_days=400, seed=6, gap_scale=0.01)
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=252,
+        close_to_open_returns=ds.close_to_open_returns,
+        open_to_close_returns=ds.open_to_close_returns,
+    )
+    all_dates = list(ds.returns.index)
+    for config in result.execution_history:
+        # The very last rebalance's execution may fall the day after the
+        # sample ends, in which case it's never observed -- execution_history
+        # is then exactly one entry short of binding_constraints_history.
+        assert len(result.execution_history[config]) in (
+            len(result.binding_constraints_history[config]),
+            len(result.binding_constraints_history[config]) - 1,
+        )
+        for exec_entry, decision_entry in zip(result.execution_history[config], result.binding_constraints_history[config]):
+            decision_idx = all_dates.index(decision_entry["date"])
+            assert exec_entry["date"] == all_dates[decision_idx + 1]
+            assert np.isclose(exec_entry["turnover"], decision_entry["turnover"])
