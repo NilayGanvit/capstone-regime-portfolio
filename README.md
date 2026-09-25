@@ -12,21 +12,32 @@ risk-budgeting network) each with baseline/regime-aware variants, a
 Dynamic-Model-Averaging reliability layer that blends them, shared
 constraints, and a walk-forward evaluation harness.
 
-## Status (as of this scaffold)
+## Status
 
-**Working end-to-end on synthetic data**, with a full pytest suite (43
-tests passing). **Not yet run on the real ten-ETF universe** — this
-development environment has no network access, so real price data has
-not been pulled in. See "Next steps" below.
+**Working end-to-end on both synthetic and the real ten-ETF universe**,
+with a full pytest suite (60 tests passing, 1 skipped -- the skip is the
+pre-existing torch-absence check for `allocation_lstm.py`, which is not
+wired into this branch's harness; see the LSTM feature branches for that
+piece). The ERC baseline/regime/reliability-blend walk-forward harness
+has been run on real data with M2's calendar boundaries
+(`data.M2Calendar`), next-session-open execution, a transaction-cost
+ledger (5/10/25 bps sensitivity), the Deflated Sharpe Ratio, and
+risk-contribution diagnostics all wired in -- see "Next steps" below for
+what's still not on this branch (scheduled refit, LSTM training/
+integration, and robustness checks all live on feature branches).
 
 ```
-python scripts/run_smoke_test.py
+python scripts/run_smoke_test.py       # synthetic 2-regime data, plumbing check
+python scripts/run_real_data.py        # real ten-ETF universe, primary 3-state spec
 ```
-runs the whole pipeline on a synthetic 2-regime dataset (see
+`run_smoke_test.py` runs the whole pipeline on a synthetic dataset (see
 `src/data.py::make_synthetic_universe`) and writes a results table to
-`outputs/smoke_test_summary.csv`. Read the header comment in that script
+`outputs/smoke_test_summary.csv`; read the header comment in that script
 before citing any number from it — it exists to prove the plumbing
-works, not to say anything about the real research questions yet.
+works, not to say anything about the real research questions. The other
+script runs on the real data in `data/raw/` and writes to
+`outputs/real_data_summary.csv` (gross) and
+`outputs/real_data_cost_sensitivity.csv` (net of costs), among others.
 
 ## Module map and ownership
 
@@ -57,29 +68,26 @@ python scripts/run_smoke_test.py
 ```
 
 `torch` is required only for `allocation_lstm.py`'s neural-network
-pieces. It is **not installed in the sandbox this scaffold was built in**
-(no network access there), so the two LSTM-specific tests
-(`test_allocation_lstm.py::test_lstm_forward_pass_shape` and
-`::test_sharpe_turnover_loss_runs`) will show as skipped until you run
-the suite in your own environment with `torch` installed. Everything
-else — HMM, densities, reliability, ERC, constraints, evaluation, and
-the full ERC-only walk-forward harness — has been run and verified in
-this sandbox and does not depend on torch.
+pieces, and `cvxpylayers` (plus `cvxpy`/`diffcp`) for its end-to-end
+training loop; both are installed in this environment (see the LSTM
+feature branches for that work) but not used by anything on this
+branch's own scripts. If either is missing in your environment, the
+corresponding tests skip cleanly rather than failing.
 
 ## Known scope limitations (intentional, not oversights)
 
-- **Scheduled model refit is not yet implemented.** The walk-forward
-  harness currently fits the HMM/M0/M1 once on the initial window and
-  holds parameters fixed through the loop. The M2 pseudocode calls for
-  periodic re-fitting using only `F(t)`. This is the most important
-  next addition to `walkforward.py`.
-- **The LSTM allocator's training loop is not implemented**, only the
-  model, the loss function, and the (non-differentiable) bridge from
-  learned budgets to weights via the shared risk-budgeting solver.
-  End-to-end training through the optimization layer, the way Uysal,
-  Li & Mulvey (2021) do it, needs a differentiable convex-optimization
-  layer (e.g. `cvxpylayers`), which is not installed here and is flagged
-  as its own follow-on task rather than approximated silently.
+- **Scheduled model refit is not on this branch.** This branch's
+  walk-forward harness fits the HMM/M0/M1 once on the initial window and
+  holds parameters fixed through the loop; `feature/scheduled-refit`
+  (and everything built on top of it) adds periodic re-fitting using
+  only `F(t)`, per the M2 pseudocode.
+- **The LSTM allocator isn't wired into this branch's walk-forward
+  harness.** Its model, loss function, and end-to-end differentiable
+  training loop (via `cvxpylayers`) are implemented and have been run on
+  the real universe -- see `feature/lstm-e2e-training-and-robustness-checks`
+  and `feature/lstm-real-data-training` -- but training a model isn't
+  the same as backtesting it: it is not yet plugged into
+  `run_walk_forward` as additional configs.
 - **Real price data.** `data.py::PriceDataset.from_csv_dir` loads real ETF
   CSVs from `data/raw/` (one file per ticker, `Date`/`AdjClose` columns,
   plus an optional `AdjOpen` column -- adjusted the same way as `AdjClose`
@@ -91,13 +99,21 @@ this sandbox and does not depend on torch.
 
 ## Next steps
 
-1. Pull real ETF price histories (April 2007 onward per M2) into
-   `data/raw/`, one CSV per ticker.
-2. Add the scheduled-refit step to `walkforward.py`.
-3. Decide on the differentiable-optimization-layer approach for LSTM
-   training (`cvxpylayers`, or a documented simpler proxy) and implement
-   the actual training loop.
-4. Re-run `scripts/run_smoke_test.py` against real data and replace the
-   "synthetic" framing everywhere it appears once that happens.
-5. Wire in the 2-state HMM and no-VNQ / no-HYG robustness checks (M3
-   "Scope and feasibility").
+Real ETF data, scheduled refit, the LSTM's differentiable training loop,
+and the 2-state/no-VNQ/no-HYG robustness checks are all implemented and
+have been run on the real universe -- see `feature/scheduled-refit` and
+the LSTM feature branches. What's left:
+
+1. Merge the scheduled-refit and LSTM branches back into `main` once the
+   group has settled the open item below.
+2. **Settle the refit-cadence question before citing any final-test
+   number**: the quarterly default was selected by comparing Sharpe over
+   a sample that includes the 2019-2026-08 final-test window, not
+   validation-only evidence (see `outputs/trial_log.csv`, trial 6, and
+   the M3 draft's comments). Re-derive it on development/validation data
+   alone, revert to M2's monthly default, or explicitly reclassify
+   current results as exploratory -- pick one before M4.
+3. Wire the trained LSTM into `run_walk_forward` as `lstm_baseline`/
+   `lstm_regime`/`lstm_blend` configs alongside the ERC ones.
+4. HRP and per-regime ν remain out of scope per M2's own scope note --
+   secondary robustness checks only if time allows.
