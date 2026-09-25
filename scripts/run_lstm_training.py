@@ -11,11 +11,16 @@ for both the baseline (market features only) and regime (features +
 one-step-ahead HMM state probabilities) variants, and reports the training
 loss curve as evidence the loop runs and converges on real data.
 
-What this does NOT do: wire the trained model into run_walk_forward as
-lstm_baseline/lstm_regime/lstm_blend configs. That remains explicitly
-out of scope (see README "Next steps") -- this script's only claim is
-"the training loop has now been exercised on the real universe," not
-"the LSTM allocator is backtested."
+What this does NOT do: wire the trained model into run_walk_forward. That
+happens in scripts/run_real_data.py, which trains its own baseline/regime
+LSTM models (on the initial training window only, unlike this script's
+dev+validation slice below) and passes them into run_walk_forward as
+lstm_baseline/lstm_regime/lstm_blend configs -- see that script and
+walkforward.py's module docstring. This script's own claim remains
+narrower: "the training loop runs and converges on the real universe,"
+exercised here on a larger dev+validation slice than the walk-forward-safe
+initial window alone, since that's a more informative convergence check
+than this script's purpose requires being walk-forward-safe about.
 
 Chronological discipline: per M2/M3 ("these choices will be made before
 the final out-of-sample test"), training uses only the initial-training

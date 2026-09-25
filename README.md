@@ -17,27 +17,32 @@ constraints, and a walk-forward evaluation harness.
 **Working end-to-end on both synthetic and the real ten-ETF universe**,
 with a full pytest suite passing (the only skip is the pre-existing
 torch/cvxpylayers-absence check, which does not apply once those
-packages are installed, per requirements.txt). The ERC baseline/regime/
-reliability-blend walk-forward harness -- with M2's calendar boundaries
-(`data.M2Calendar`), next-session-open execution, a transaction-cost
-ledger (5/10/25 bps sensitivity), the Deflated Sharpe Ratio,
-risk-contribution diagnostics, and scheduled model refit all wired in --
-the LSTM allocator's end-to-end training loop, and the pre-specified
-2-state/no-VNQ/no-HYG robustness checks have all been run on real data
-(see "Next steps" below for what's still not wired up: the trained LSTM
-is not yet plugged into `run_walk_forward` itself).
+packages are installed, per requirements.txt). The walk-forward
+harness -- with M2's calendar boundaries (`data.M2Calendar`),
+next-session-open execution, a transaction-cost ledger (5/10/25 bps
+sensitivity), the Deflated Sharpe Ratio, risk-contribution diagnostics,
+and scheduled model refit all wired in -- now produces all six M2
+evaluation-table configs (ERC and LSTM, each baseline/regime/blend) plus
+the equal-weight benchmark from one run (`scripts/run_real_data.py`,
+which trains the LSTM on the initial window and passes it into
+`run_walk_forward`). The pre-specified 2-state/no-VNQ/no-HYG robustness
+checks, and the two secondary robustness checks M2's own scope note
+deferred (HRP, per-regime ν), have all been run on real data (see "Next
+steps" below for what's still open: the refit-cadence question and
+feeding the robustness numbers into the M3 lit-review writeup).
 
 ```
 python scripts/run_smoke_test.py       # synthetic 2-regime data, plumbing check
-python scripts/run_real_data.py        # real ten-ETF universe, primary 3-state spec
+python scripts/run_real_data.py        # real ten-ETF universe, all 6 M2 configs + benchmark
 python scripts/run_robustness_checks.py  # 2-state HMM, no-VNQ, no-HYG
+python scripts/run_hrp_and_nu_robustness.py  # HRP vs ERC, shared vs per-regime nu
 ```
 `run_smoke_test.py` runs the whole pipeline on a synthetic dataset (see
 `src/data.py::make_synthetic_universe`) and writes a results table to
 `outputs/smoke_test_summary.csv`; read the header comment in that script
 before citing any number from it — it exists to prove the plumbing
 works, not to say anything about the real research questions. The other
-two scripts run on the real data in `data/raw/` and write to
+scripts run on the real data in `data/raw/` and write to
 `outputs/real_data_summary.csv` (gross), `real_data_cost_sensitivity.csv`
 (net of costs), and `outputs/robustness_*.csv`, among others.
 
@@ -55,6 +60,7 @@ pseudocode / M3 lit review it implements.
 | `src/densities.py` | Silvio | M0 (pooled Student-t) / M1 (regime-mixture Student-t) predictive densities, shared ν |
 | `src/reliability.py` | Silvio | DMA π_t recursive update, weight blending, forgetting-factor selection |
 | `src/allocation_erc.py` | AnnaLisa & Nilay | ERC risk parity (baseline + regime-aware), shared risk-budgeting solver |
+| `src/allocation_hrp.py` | AnnaLisa & Nilay | Hierarchical Risk Parity (baseline + regime-aware) -- secondary robustness check on ERC's construction |
 | `src/allocation_lstm.py` | AnnaLisa & Nilay | LSTM → softmax risk budgets → shared risk-budgeting layer; Sharpe+turnover loss |
 | `src/constraints.py` | Nilay | Joint projection onto long-only/weight/turnover limits |
 | `src/evaluation.py` | Nilay | Sharpe/CAGR/MDD/Sortino/Calmar, block bootstrap, Deflated Sharpe Ratio |
@@ -135,20 +141,41 @@ the ERC-only walk-forward harness — does not depend on either package.
   uses one shared pooled covariance and one compounded holding-period
   return per monthly rebalance, not a re-implementation of
   `run_walk_forward`'s day-by-day scheduled-refit/regime-mixture-
-  covariance machinery -- **the trained LSTM is not yet wired into
-  `run_walk_forward` as additional configs** (lstm_baseline/lstm_regime/
-  lstm_blend); that remains follow-on work.
-- **HRP and per-regime ν are out of scope for this pass**, per M2's
-  scope note — secondary robustness checks only if time allows.
+  covariance machinery.
+- **The trained LSTM is now wired into `run_walk_forward`** as
+  `lstm_baseline`/`lstm_regime`/`lstm_blend` configs, via the opt-in
+  `lstm_models`/`lstm_feature_matrix` parameters (`allocation_lstm.
+  predict_budgets` does inference only against the same covariances ERC
+  uses each rebalance date; training itself stays outside the harness --
+  see `walkforward.py`'s module docstring). `scripts/run_real_data.py`
+  trains both variants on the initial training window only and passes
+  them in, so one harness run now produces all six M2 evaluation-table
+  configs plus the equal-weight benchmark. The LSTM models are never
+  retrained mid-walk (unlike the HMM/M0/M1, which refit quarterly) --
+  re-deriving an LSTM retrain schedule remains out of scope.
+- **HRP and per-regime ν are now implemented as secondary robustness
+  checks**, per M2's own scope note, via two more opt-in
+  `run_walk_forward` parameters: `include_hrp` (adds `hrp_baseline`/
+  `hrp_regime`/`hrp_blend` configs, `src/allocation_hrp.py`'s
+  quasi-diagonalization + recursive-bisection construction, against the
+  identical covariances ERC uses) and `per_regime_nu` (one M1 mixture
+  degrees-of-freedom per HMM state, `densities.fit_per_regime_nu`,
+  instead of one nu shared across every state). Neither is a new primary
+  allocator/density -- both are off by default and evaluated only via
+  `scripts/run_hrp_and_nu_robustness.py`, which compares each against
+  ERC's own regime/reliability effect on the real universe's final test.
 
 ## Next steps
 
 Real ETF data, scheduled refit, the LSTM's differentiable training loop,
-and the 2-state/no-VNQ/no-HYG robustness checks are all implemented and
-have been run on the real universe. What's left:
+the 2-state/no-VNQ/no-HYG robustness checks, the LSTM's wiring into
+`run_walk_forward`, and the HRP/per-regime-ν secondary robustness checks
+are all implemented and have been run on the real universe. What's left:
 
-1. Merge this branch (and `feature/scheduled-refit`) back into `main`
-   once the group has settled the open item below.
+1. Merge this branch (and `feature/scheduled-refit`,
+   `feature/lstm-real-data-training`,
+   `feature/wire-lstm-and-hrp-nu-checks`) back into `main` once the
+   group has settled the open item below.
 2. **Settle the refit-cadence question before citing any final-test
    number**: the quarterly default was selected by comparing Sharpe over
    a sample that includes the 2019-2026-08 final-test window, not
@@ -156,16 +183,20 @@ have been run on the real universe. What's left:
    the M3 draft's comments). Re-derive it on development/validation data
    alone, revert to M2's monthly default, or explicitly reclassify
    current results as exploratory -- pick one before M4.
-3. Wire the trained LSTM allocator into `run_walk_forward` as
-   `lstm_baseline`/`lstm_regime`/`lstm_blend` configs, alongside the
-   existing ERC ones, so the M2 evaluation table's six configurations
-   are all actually produced by one harness run.
+3. ~~Wire the trained LSTM allocator into `run_walk_forward`~~ -- done
+   (`lstm_baseline`/`lstm_regime`/`lstm_blend`, see "Known scope
+   limitations" above); `scripts/run_real_data.py` now produces all six
+   M2 evaluation-table configs plus the equal-weight benchmark from one
+   run.
 4. Feed the M3 lit review's regime-effect/reliability-effect/ML-
    contribution analysis (see `docs/problem_statement.md`) with the
    robustness-check numbers in `outputs/robustness_*.csv` (2-state HMM,
-   no-VNQ, no-HYG, alongside the primary 3-state/full-universe run) —
-   i.e. is the primary specification's regime effect an artifact of the
-   state count or of one dominant ETF, or does it hold up across all
-   four specifications?
-5. HRP and per-regime ν remain out of scope per M2's own scope note --
-   secondary robustness checks only if time allows.
+   no-VNQ, no-HYG, HRP, per-regime ν, alongside the primary
+   3-state/full-universe run) — i.e. is the primary specification's
+   regime effect an artifact of the state count, one dominant ETF, the
+   ERC construction, or the shared-nu simplification, or does it hold up
+   across all specifications?
+5. ~~HRP and per-regime ν~~ -- done, as secondary robustness checks
+   (`include_hrp`/`per_regime_nu` on `run_walk_forward`, evaluated by
+   `scripts/run_hrp_and_nu_robustness.py`); see "Known scope
+   limitations" above.

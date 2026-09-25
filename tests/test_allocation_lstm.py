@@ -44,6 +44,19 @@ def test_lstm_forward_pass_shape():
 
 
 @pytest.mark.skipif(not _TORCH_AVAILABLE, reason="requires torch, install per requirements.txt")
+def test_predict_budgets_shape_and_softmax_sum():
+    from allocation_lstm import RiskBudgetLSTM, predict_budgets
+    import numpy as np
+
+    model = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16).double()
+    window = np.random.default_rng(0).normal(size=(20, 8))
+    budgets = predict_budgets(model, window)
+    assert budgets.shape == (10,)
+    assert np.isclose(budgets.sum(), 1.0, atol=1e-6)
+    assert (budgets >= 0).all()
+
+
+@pytest.mark.skipif(not _TORCH_AVAILABLE, reason="requires torch, install per requirements.txt")
 def test_sharpe_turnover_loss_runs():
     import torch
     from allocation_lstm import sharpe_turnover_loss

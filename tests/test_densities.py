@@ -7,7 +7,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import make_synthetic_universe
 from regime import GaussianHMM
-from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu, weighted_mean_cov
+from densities import (
+    M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu, fit_per_regime_nu, weighted_mean_cov,
+)
 
 
 def test_weighted_mean_cov_matches_equal_weights_case():
@@ -52,3 +54,40 @@ def test_m1_outpredicts_m0_on_regime_switching_data():
         ll1 += m1.log_density(r_next, predicted)
 
     assert ll1 > ll0, "M1 (regime-aware) should out-predict M0 (pooled) when data genuinely has regimes"
+
+
+def test_fit_per_regime_nu_returns_one_value_per_state():
+    rng = np.random.default_rng(3)
+    T, n_features, n_states = 600, 3, 2
+    X = rng.standard_t(df=5, size=(T, n_features)) * 0.01
+    # Deterministic hard assignment (not soft filtered probs) is fine here
+    # -- fit_per_regime_nu only needs a (T, n_states) weight matrix.
+    probs = np.zeros((T, n_states))
+    probs[: T // 2, 0] = 1.0
+    probs[T // 2 :, 1] = 1.0
+    nus = fit_per_regime_nu(X, probs)
+    assert nus.shape == (n_states,)
+    assert (nus > 2).all()
+
+
+def test_m1_accepts_scalar_or_per_regime_nu_array():
+    """A per-state nu array should change the density from the
+    shared-scalar case whenever the states actually differ in tail
+    behavior -- otherwise per_regime_nu would be a silent no-op."""
+    rng = np.random.default_rng(4)
+    T, n_features, n_states = 400, 3, 2
+    X = rng.normal(size=(T, n_features)) * 0.01
+    probs = rng.dirichlet(np.ones(n_states), size=T)
+
+    nu_shared = 8.0
+    nu_per_regime = np.array([4.0, 20.0])  # deliberately very different
+
+    m1_shared = M1RegimeMixtureStudentT(nu=nu_shared).fit(X, probs)
+    m1_per_regime = M1RegimeMixtureStudentT(nu=nu_per_regime).fit(X, probs)
+
+    r = X[0]
+    predicted = np.array([0.5, 0.5])
+    ld_shared = m1_shared.log_density(r, predicted)
+    ld_per_regime = m1_per_regime.log_density(r, predicted)
+    assert np.isfinite(ld_shared) and np.isfinite(ld_per_regime)
+    assert not np.isclose(ld_shared, ld_per_regime)

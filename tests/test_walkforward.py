@@ -2,12 +2,15 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import make_synthetic_universe, PriceDataset
 from walkforward import run_walk_forward, ewma_blend
 from constraints import ConstraintSpec
+from allocation_lstm import _TORCH_AVAILABLE, _CVXPYLAYERS_AVAILABLE
 
 
 def _synthetic_dataset_with_opens(n_days: int, seed: int, gap_scale: float) -> PriceDataset:
@@ -331,3 +334,154 @@ def test_refit_every_n_rebalances_one_refits_roughly_three_times_as_often():
         assert (w >= -1e-6).all()
     for r in result_quarterly.portfolio_returns.values():
         assert np.isfinite(r).all()
+
+
+def test_include_hrp_false_default_matches_erc_only_configs():
+    """include_hrp=False (default) must reproduce today's exact 4-config
+    behavior -- opt-in extensions must not change anything for existing
+    callers."""
+    ds, _ = make_synthetic_universe(n_days=500, seed=4)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252)
+    assert set(result.weights.keys()) == {"erc_baseline", "erc_regime", "erc_blend", "equal_weight"}
+
+
+def test_include_hrp_true_adds_hrp_configs_with_valid_weights():
+    ds, _ = make_synthetic_universe(n_days=500, seed=4)
+    result = run_walk_forward(ds.returns, n_states=2, initial_window=252, include_hrp=True)
+    expected = {
+        "erc_baseline", "erc_regime", "erc_blend", "equal_weight",
+        "hrp_baseline", "hrp_regime", "hrp_blend",
+    }
+    assert set(result.weights.keys()) == expected
+    for config in ("hrp_baseline", "hrp_regime", "hrp_blend"):
+        w = result.weights[config]
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), config
+        assert (w >= -1e-6).all(), config
+        assert np.isfinite(result.portfolio_returns[config]).all(), config
+        # Risk-contribution diagnostics stay ERC-only -- HRP isn't solved
+        # against an explicit target budget the same way.
+        for entry in result.binding_constraints_history[config]:
+            assert entry["risk_contribution_pre_constraint_max_dev"] is None
+            assert entry["risk_contribution_post_constraint_max_dev"] is None
+
+
+def test_per_regime_nu_false_default_matches_shared_nu_baseline():
+    """per_regime_nu=False (default) must reproduce today's shared-nu
+    results exactly."""
+    ds, _ = make_synthetic_universe(n_days=500, seed=4)
+    kwargs = dict(n_states=2, initial_window=252)
+    result_default = run_walk_forward(ds.returns, **kwargs)
+    result_explicit_false = run_walk_forward(ds.returns, per_regime_nu=False, **kwargs)
+    for config in result_default.weights:
+        assert np.allclose(result_default.weights[config], result_explicit_false.weights[config])
+
+
+def test_per_regime_nu_true_runs_validly_and_can_change_blend_weights():
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    kwargs = dict(
+        n_states=2, initial_window=252, alpha=0.97, refit_n_iter=20,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+    )
+    result_shared = run_walk_forward(ds.returns, **kwargs)
+    result_per_regime = run_walk_forward(ds.returns, per_regime_nu=True, **kwargs)
+
+    for config, w in result_per_regime.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6)
+        assert (w >= -1e-6).all()
+    for r in result_per_regime.portfolio_returns.values():
+        assert np.isfinite(r).all()
+    assert np.isfinite(result_per_regime.pi_history).all()
+    # erc_regime's own targets don't depend on nu (only the M1/pi_t path
+    # does), but erc_blend mixes in pi_t, so it's the one expected to move.
+    assert not np.allclose(result_shared.weights["erc_blend"], result_per_regime.weights["erc_blend"])
+
+
+def test_lstm_models_and_feature_matrix_must_be_given_together():
+    ds, _ = make_synthetic_universe(n_days=500, seed=4)
+    with pytest.raises(ValueError):
+        run_walk_forward(ds.returns, n_states=2, initial_window=252, lstm_models={"baseline": None, "regime": None})
+    feature_matrix = pd.DataFrame(index=ds.returns.index[:10])
+    with pytest.raises(ValueError):
+        run_walk_forward(ds.returns, n_states=2, initial_window=252, lstm_feature_matrix=feature_matrix)
+
+
+_lstm_skip = pytest.mark.skipif(
+    not (_TORCH_AVAILABLE and _CVXPYLAYERS_AVAILABLE),
+    reason="requires torch and cvxpylayers, install per requirements.txt",
+)
+
+
+def _train_toy_lstm_models(returns: pd.DataFrame, initial_window: int, n_states: int, seq_len: int):
+    """Minimal end-to-end training of both LSTM variants on the initial
+    window only, mirroring what scripts/run_real_data.py does for real
+    data -- just enough epochs/windows to exercise run_walk_forward's
+    inference path, not to produce a converged model."""
+    from features import build_feature_matrix
+    from regime import GaussianHMM
+    from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator
+
+    n_assets = returns.shape[1]
+    train_returns = returns.iloc[:initial_window]
+    feature_matrix = build_feature_matrix(returns)
+    train_features = feature_matrix.loc[: train_returns.index[-1]]
+
+    hmm0 = GaussianHMM(n_states=n_states, random_state=0).fit(train_returns.to_numpy())
+    regime_probs = hmm0.predicted_probabilities(train_returns.to_numpy())
+    regime_prob_df = pd.DataFrame(
+        regime_probs, index=train_returns.index,
+        columns=[f"regime_prob_{k}" for k in range(n_states)],
+    )
+    regime_features_train = train_features.join(regime_prob_df, how="inner")
+
+    models = {}
+    for name, feats in [("baseline", train_features), ("regime", regime_features_train)]:
+        windows, covs, fwd, _ = build_lstm_training_windows(feats, train_returns, seq_len=seq_len, cov_window=100)
+        model = RiskBudgetLSTM(n_features=windows[0].shape[1], n_assets=n_assets, hidden_size=8)
+        result = train_lstm_allocator(model, windows, covs, fwd, n_epochs=5, lr=5e-3, turnover_penalty=0.05)
+        models[name] = result["model"]
+    return models, feature_matrix
+
+
+@_lstm_skip
+def test_lstm_configs_wired_in_with_valid_weights():
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    initial_window, seq_len = 252, 20
+    models, feature_matrix = _train_toy_lstm_models(ds.returns, initial_window, n_states=2, seq_len=seq_len)
+
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=initial_window,
+        lstm_models=models, lstm_feature_matrix=feature_matrix, lstm_seq_len=seq_len,
+    )
+    expected = {
+        "erc_baseline", "erc_regime", "erc_blend", "equal_weight",
+        "lstm_baseline", "lstm_regime", "lstm_blend",
+    }
+    assert set(result.weights.keys()) == expected
+    for config in ("lstm_baseline", "lstm_regime", "lstm_blend"):
+        w = result.weights[config]
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), config
+        assert (w >= -1e-6).all(), config
+        assert np.isfinite(result.portfolio_returns[config]).all(), config
+
+
+@_lstm_skip
+def test_lstm_and_hrp_and_per_regime_nu_can_all_be_enabled_together():
+    """The three opt-in extensions are independent knobs -- enabling all
+    three at once, with scheduled monthly refit (so the regime-probability
+    cache gets exercised across multiple refits), must still produce
+    valid results for every one of the ten configs."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=11)
+    initial_window, seq_len, n_states = 252, 20, 3
+    models, feature_matrix = _train_toy_lstm_models(ds.returns, initial_window, n_states=n_states, seq_len=seq_len)
+
+    result = run_walk_forward(
+        ds.returns, n_states=n_states, initial_window=initial_window,
+        lstm_models=models, lstm_feature_matrix=feature_matrix, lstm_seq_len=seq_len,
+        include_hrp=True, per_regime_nu=True, refit_every_n_rebalances=1, refit_n_iter=20,
+    )
+    assert len(result.weights) == 10
+    assert len(result.refit_dates) > 1
+    for config, w in result.weights.items():
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), config
+        assert (w >= -1e-6).all(), config
+        assert np.isfinite(result.portfolio_returns[config]).all(), config
