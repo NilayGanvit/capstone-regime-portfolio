@@ -8,14 +8,23 @@ adjusted-close history for the M2 universe (SPY, EFA, EEM, IEF, TLT,
 LQD, HYG, GLD, DBC, VNQ; 2007-04-11 onward -- HYG's inception date sets
 the common start) from data/raw/, via data.PriceDataset.from_csv_dir,
 and runs the same ERC baseline/regime/reliability-blend walk-forward
-harness used by the smoke test.
+harness used by the smoke test, extended with the LSTM allocator so all
+six M2 evaluation-table configs (+ equal_weight) come out of one run.
 
-This still wires ERC only, not the LSTM allocator (run_walk_forward
-does not yet call into allocation_lstm.py; see walkforward.py's
-module docstring on the scheduled-refit and LSTM-training scope
-limitations, which apply here exactly as they do to the smoke test).
-These are real numbers on the real universe, not a claim that the
-walk-forward harness is feature-complete against the full M2 design.
+Before the walk-forward call, this script trains both LSTM variants
+(baseline, regime) end-to-end (allocation_lstm.train_lstm_allocator) on
+the initial training window ONLY -- never dev+validation like
+scripts/run_lstm_training.py's convergence check, and never the final
+test -- so that walk-forward's own 2015-2026 walk (including its
+validation days) is scored against a model that has genuinely never seen
+those days, exactly the same chronological discipline the HMM/M0/M1
+initial fit already follows. The trained models are then passed into
+run_walk_forward, which does inference only (no further training) at
+every rebalance date -- see walkforward.py's module docstring for why
+training and the harness stay separated. This is real-universe,
+real-training, but still the initial-window-fit, no-scheduled-refit-of-
+the-LSTM pass documented there -- the LSTM models are never retrained
+mid-walk, unlike the HMM/M0/M1 which refit quarterly.
 
 Initial window and reporting periods follow M2's calendar
 (data.M2Calendar) rather than an arbitrary trading-day count: the
@@ -57,6 +66,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels  # noqa: E402
+from features import build_feature_matrix  # noqa: E402
+from regime import GaussianHMM  # noqa: E402
+from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
@@ -67,6 +79,47 @@ from evaluation import (  # noqa: E402
 
 FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
 TRIAL_LOG_PATH = Path(__file__).resolve().parents[1] / "outputs" / "trial_log.csv"
+LSTM_SEQ_LEN = 60
+LSTM_COV_WINDOW = 252
+LSTM_N_EPOCHS = 200
+LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
+
+
+def train_lstm_variants(returns: pd.DataFrame, initial_window: int) -> tuple[dict, pd.DataFrame]:
+    """Train the baseline and regime-aware LSTM allocators on
+    returns[:initial_window] only -- see this script's module docstring
+    for why. Returns ({"baseline": model, "regime": model},
+    full-history feature_matrix) ready to pass straight into
+    run_walk_forward's lstm_models/lstm_feature_matrix."""
+    n_assets = returns.shape[1]
+    train_returns = returns.iloc[:initial_window]
+    feature_matrix = build_feature_matrix(returns)  # causal by construction, safe over full history
+    train_features = feature_matrix.loc[:train_returns.index[-1]]
+
+    hmm = GaussianHMM(n_states=LSTM_N_STATES, random_state=0).fit(train_returns.to_numpy())
+    regime_probs = hmm.predicted_probabilities(train_returns.to_numpy())
+    regime_prob_df = pd.DataFrame(
+        regime_probs, index=train_returns.index,
+        columns=[f"regime_prob_{k}" for k in range(LSTM_N_STATES)],
+    )
+    regime_features_train = train_features.join(regime_prob_df, how="inner")
+
+    models = {}
+    for variant_name, feats in [("baseline", train_features), ("regime", regime_features_train)]:
+        windows, covs, fwd, dates = build_lstm_training_windows(
+            feats, train_returns, seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW,
+        )
+        print(f"LSTM {variant_name}: {len(windows)} training windows, "
+              f"{pd.Timestamp(dates[0]).date()} to {pd.Timestamp(dates[-1]).date()}")
+        model = RiskBudgetLSTM(n_features=windows[0].shape[1], n_assets=n_assets)
+        t0 = time.time()
+        result = train_lstm_allocator(
+            model, windows, covs, fwd, n_epochs=LSTM_N_EPOCHS, turnover_penalty=0.1, shrinkage=0.10,
+        )
+        print(f"LSTM {variant_name}: trained in {time.time() - t0:.1f}s, "
+              f"loss {result['loss_history'][0]:.4f} -> {result['loss_history'][-1]:.4f}")
+        models[variant_name] = result["model"]
+    return models, feature_matrix
 
 
 def binding_constraints_dataframe(binding_history: list, calendar: M2Calendar, stage: str) -> pd.DataFrame:
@@ -185,18 +238,28 @@ def main() -> None:
     print(f"Initial training window per M2's calendar: {initial_window} trading days "
           f"through {calendar.initial_training_end.date()}")
 
+    print(f"\n--- Training LSTM baseline/regime allocators on the initial "
+          f"window only ({LSTM_N_EPOCHS} epochs each) ---")
+    t0 = time.time()
+    lstm_models, lstm_feature_matrix = train_lstm_variants(returns, initial_window)
+    print(f"LSTM training runtime: {time.time() - t0:.1f}s\n")
+
     t0 = time.time()
     result = run_walk_forward(
         returns,
-        n_states=3,
+        n_states=LSTM_N_STATES,
         initial_window=initial_window,
         alpha=0.97,
         constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
         close_to_open_returns=ds.close_to_open_returns if ds.opens is not None else None,
         open_to_close_returns=ds.open_to_close_returns if ds.opens is not None else None,
+        lstm_models=lstm_models,
+        lstm_feature_matrix=lstm_feature_matrix,
+        lstm_seq_len=LSTM_SEQ_LEN,
     )
     runtime = time.time() - t0
-    print(f"\nWalk-forward runtime: {runtime:.1f}s over {len(result.dates)} trading days\n")
+    print(f"\nWalk-forward runtime: {runtime:.1f}s over {len(result.dates)} trading days, "
+          f"{len(result.weights)} configs\n")
 
     stages = stage_labels(pd.DatetimeIndex(result.dates), calendar)
     stage_counts = stages.value_counts()
@@ -273,11 +336,13 @@ def main() -> None:
               f"{n_bound_binding} with a weight bound binding")
         table.to_csv(out_dir / f"real_data_binding_constraints_{config}.csv", index=False)
     print(f"Saved per-config detail to {out_dir}/real_data_binding_constraints_<config>.csv")
-    print("\nThese are real-universe numbers, but still only the initial-window-fit, "
-          "no-scheduled-refit, ERC-only pass documented in walkforward.py -- read that "
-          "module's docstring before citing specific figures in M3/M4. Only the "
-          "FINAL TEST block above is the number to cite; VALIDATION exists for "
-          "development and must not be reported as an out-of-sample result. "
+    print("\nThese are real-universe numbers for all six M2 evaluation-table configs "
+          "(ERC and LSTM, each baseline/regime/blend) plus equal_weight, from one "
+          "harness run -- but the LSTM models are trained once on the initial window "
+          "only and never retrained mid-walk, unlike the HMM/M0/M1 (see this script's "
+          "and walkforward.py's module docstrings before citing specific figures in "
+          "M3/M4). Only the FINAL TEST block above is the number to cite; VALIDATION "
+          "exists for development and must not be reported as an out-of-sample result. "
           "real_data_summary.csv is GROSS of transaction costs -- the 5 bps net-of-cost "
           "figure (M2's proposed baseline) is in real_data_cost_sensitivity.csv and the "
           "DSR line above, not in real_data_summary.csv.")

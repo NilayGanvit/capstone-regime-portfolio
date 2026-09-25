@@ -11,3 +11,12 @@ erc_blend,25.0,0.782,0.0619
 equal_weight,5.0,0.881,0.0879
 equal_weight,10.0,0.88,0.0878
 equal_weight,25.0,0.876,0.0873
+lstm_baseline,5.0,0.808,0.0922
+lstm_baseline,10.0,0.798,0.0909
+lstm_baseline,25.0,0.767,0.087
+lstm_regime,5.0,0.902,0.0908
+lstm_regime,10.0,0.892,0.0897
+lstm_regime,25.0,0.861,0.0863
+lstm_blend,5.0,0.886,0.0898
+lstm_blend,10.0,0.876,0.0886
+lstm_blend,25.0,0.846,0.0853

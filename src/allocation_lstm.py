@@ -142,6 +142,26 @@ def sharpe_turnover_loss(
     return -sharpe + turnover_penalty * turnover
 
 
+def predict_budgets(model: "RiskBudgetLSTM", feature_window: np.ndarray) -> np.ndarray:
+    """Eval-mode forward pass for walk-forward *inference*: a single
+    (seq_len, n_features) trailing feature window -> (n_assets,) softmax
+    risk budgets, as a plain numpy array. No gradients, one window at a
+    time (walk-forward calls this once per rebalance date, not batched).
+
+    `model` is expected to already be trained (via train_lstm_allocator,
+    which leaves it in float64 via `.double()`) -- training itself stays
+    outside walkforward.run_walk_forward; see that module's docstring for
+    why (chronological discipline: the model must be fit only on data
+    through the initial training window, never retrained mid-walk).
+    """
+    require_torch()
+    model.eval()
+    with torch.no_grad():
+        x = torch.tensor(np.asarray(feature_window)[None, :, :], dtype=torch.float64)
+        budgets = model(x)
+    return budgets[0].numpy()
+
+
 def budgets_to_weights_batch(budgets_batch: np.ndarray, cov: np.ndarray) -> np.ndarray:
     """Apply the shared risk-budgeting optimization layer (from
     allocation_erc.py) to a batch of learned budget vectors against a
