@@ -485,3 +485,66 @@ def test_lstm_and_hrp_and_per_regime_nu_can_all_be_enabled_together():
         assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), config
         assert (w >= -1e-6).all(), config
         assert np.isfinite(result.portfolio_returns[config]).all(), config
+
+
+def test_lstm_retrain_every_n_rebalances_requires_lstm_models():
+    ds, _ = make_synthetic_universe(n_days=500, seed=4)
+    with pytest.raises(ValueError):
+        run_walk_forward(ds.returns, n_states=2, initial_window=252, lstm_retrain_every_n_rebalances=1)
+
+
+@_lstm_skip
+def test_lstm_retrain_none_by_default_leaves_frozen_behavior_unchanged():
+    """lstm_retrain_every_n_rebalances defaults to None -- every existing
+    caller (frozen-model inference only) must keep getting identical
+    results, byte for byte."""
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    initial_window, seq_len = 252, 20
+    models, feature_matrix = _train_toy_lstm_models(ds.returns, initial_window, n_states=2, seq_len=seq_len)
+
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=initial_window,
+        lstm_models=models, lstm_feature_matrix=feature_matrix, lstm_seq_len=seq_len,
+    )
+    assert result.lstm_retrain_dates == []
+
+
+@_lstm_skip
+def test_lstm_retrain_occurs_at_the_configured_cadence_and_stays_valid():
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    initial_window, seq_len = 252, 20
+    models, feature_matrix = _train_toy_lstm_models(ds.returns, initial_window, n_states=2, seq_len=seq_len)
+
+    result = run_walk_forward(
+        ds.returns, n_states=2, initial_window=initial_window,
+        lstm_models=models, lstm_feature_matrix=feature_matrix, lstm_seq_len=seq_len,
+        lstm_retrain_every_n_rebalances=1, lstm_retrain_n_epochs=3, lstm_cov_window=100,
+    )
+    assert len(result.lstm_retrain_dates) > 1
+    assert len(result.lstm_retrain_dates) == len(set(result.lstm_retrain_dates)), "duplicate retrain dates"
+    for config in ("lstm_baseline", "lstm_regime", "lstm_blend"):
+        w = result.weights[config]
+        assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6), config
+        assert (w >= -1e-6).all(), config
+        assert np.isfinite(result.portfolio_returns[config]).all(), config
+
+
+@_lstm_skip
+def test_lstm_retrain_every_n_rebalances_three_retrains_a_third_as_often():
+    ds, _ = make_synthetic_universe(n_days=900, seed=7)
+    initial_window, seq_len = 252, 20
+    models_monthly, feature_matrix = _train_toy_lstm_models(ds.returns, initial_window, n_states=2, seq_len=seq_len)
+
+    result_monthly = run_walk_forward(
+        ds.returns, n_states=2, initial_window=initial_window,
+        lstm_models=models_monthly, lstm_feature_matrix=feature_matrix, lstm_seq_len=seq_len,
+        lstm_retrain_every_n_rebalances=1, lstm_retrain_n_epochs=3, lstm_cov_window=100,
+    )
+    models_quarterly, feature_matrix_q = _train_toy_lstm_models(ds.returns, initial_window, n_states=2, seq_len=seq_len)
+    result_quarterly = run_walk_forward(
+        ds.returns, n_states=2, initial_window=initial_window,
+        lstm_models=models_quarterly, lstm_feature_matrix=feature_matrix_q, lstm_seq_len=seq_len,
+        lstm_retrain_every_n_rebalances=3, lstm_retrain_n_epochs=3, lstm_cov_window=100,
+    )
+    ratio = len(result_quarterly.lstm_retrain_dates) / len(result_monthly.lstm_retrain_dates)
+    assert 0.25 <= ratio <= 0.40, f"expected ~1/3 as many retrains, got ratio {ratio}"

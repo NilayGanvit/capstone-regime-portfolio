@@ -88,7 +88,7 @@ from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu, 
 from reliability import ReliabilityTracker, blend_weights
 from allocation_erc import erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares
 from allocation_hrp import hrp_baseline_weights, hrp_regime_weights
-from allocation_lstm import predict_budgets, budgets_to_weights_batch
+from allocation_lstm import predict_budgets, budgets_to_weights_batch, build_lstm_training_windows, train_lstm_allocator
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
 
 
@@ -103,6 +103,7 @@ class WalkForwardResult:
     binding_constraints_history: dict  # config_name -> list of {date, lower_bound_binding, upper_bound_binding, turnover_binding, turnover, risk_contribution_pre_constraint_max_dev, risk_contribution_post_constraint_max_dev}, one entry per rebalance
     execution_history: dict  # config_name -> list of {date, turnover}, one entry per rebalance, dated on the day the trade actually executes (== decision date if no open-price data, decision date + 1 trading day otherwise) -- the reference series for transaction-cost accounting
     refit_dates: list       # dates on which a scheduled refit occurred
+    lstm_retrain_dates: list  # dates on which the LSTM allocators were retrained (empty unless lstm_retrain_every_n_rebalances is set)
 
 
 def ewma_blend(new: np.ndarray, prev: np.ndarray, lam: float) -> np.ndarray:
@@ -139,6 +140,10 @@ def run_walk_forward(
     lstm_models: dict | None = None,
     lstm_feature_matrix: pd.DataFrame | None = None,
     lstm_seq_len: int = 60,
+    lstm_retrain_every_n_rebalances: int | None = None,
+    lstm_retrain_n_epochs: int = 50,
+    lstm_cov_window: int = 252,
+    lstm_turnover_penalty: float = 0.1,
     include_hrp: bool = False,
     per_regime_nu: bool = False,
 ) -> WalkForwardResult:
@@ -187,12 +192,35 @@ def run_walk_forward(
     "regime": trained RiskBudgetLSTM} (see allocation_lstm.py) and
     requires `lstm_feature_matrix` (features.build_feature_matrix(returns),
     causal by construction) alongside it -- adds lstm_baseline/lstm_regime/
-    lstm_blend configs, doing inference only (allocation_lstm.predict_budgets)
-    against a trailing `lstm_seq_len`-day window at each rebalance date; the
-    models themselves must already be trained on data through the initial
-    window only (see scripts/run_real_data.py) -- this function never
-    trains or retrains them. Both `lstm_models` and `lstm_feature_matrix`
-    must be given together, or neither.
+    lstm_blend configs, doing inference (allocation_lstm.predict_budgets)
+    against a trailing `lstm_seq_len`-day window at each rebalance date. The
+    models must already be trained on data through the initial window
+    (see scripts/run_real_data.py) before being passed in -- this function
+    never performs that first fit. Both `lstm_models` and
+    `lstm_feature_matrix` must be given together, or neither.
+
+    `lstm_retrain_every_n_rebalances`, if set (requires `lstm_models`),
+    retrains both LSTM variants every Nth rebalance date on an expanding
+    window through F(t) -- M2/M3's proposed "retrain the LSTM after the
+    end of the quarter" (pass 3 for quarterly, matching the calendar
+    stated there). None (default) leaves the models exactly as passed
+    in, frozen for the whole walk -- today's actual behavior, and what
+    every existing caller keeps getting. Each retrain warm-starts from
+    the model's current weights (continuing training, not reinitializing)
+    rather than starting over, mirroring the HMM refit's own warm-start
+    rationale: on a per-quarter budget, reconverging from the previous
+    fit is cheaper and more stable than a fresh init would be. The
+    regime variant's expanding-window regime-probability features are
+    built from `regime_probs_cache`, i.e. exactly the one-step-ahead
+    probabilities ERC and the frozen-model inference path already use --
+    never recomputed retroactively. `lstm_retrain_n_epochs` (default 50,
+    lower than the initial training run's default) and
+    `lstm_turnover_penalty` bound each retrain's cost and match the
+    initial fit's training objective; `lstm_cov_window` (default 252)
+    is the trailing-return window build_lstm_training_windows uses for
+    each window's covariance estimate, same default as the initial fit.
+    Retraining repeatedly on an expanding window is real compute -- this
+    is not free the way HMM EM refits are.
 
     `include_hrp`, if True, adds hrp_baseline/hrp_regime/hrp_blend configs
     (allocation_hrp.py) against the same covariances ERC uses -- a
@@ -214,6 +242,8 @@ def run_walk_forward(
     have_lstm = lstm_models is not None
     if have_lstm != (lstm_feature_matrix is not None):
         raise ValueError("lstm_models and lstm_feature_matrix must be given together, or neither.")
+    if lstm_retrain_every_n_rebalances is not None and not have_lstm:
+        raise ValueError("lstm_retrain_every_n_rebalances requires lstm_models (nothing to warm-start from).")
 
     dates = returns.index
     X = returns.to_numpy()
@@ -279,6 +309,7 @@ def run_walk_forward(
     execution_history = {c: [] for c in configs}
     pi_history, log_l0_history, log_l1_history = [], [], []
     refit_dates = []
+    lstm_retrain_dates = []
     rebalance_count = 0
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
@@ -431,6 +462,37 @@ def run_walk_forward(
                     "hrp_blend": w_hrp_blend,
                 })
 
+            if have_lstm and lstm_retrain_every_n_rebalances and rebalance_count % lstm_retrain_every_n_rebalances == 0:
+                # M2/M3's "retrain the LSTM after the end of the quarter":
+                # expanding window through F(t), warm-started from each
+                # model's current weights rather than reinitialized (see
+                # docstring). The regime variant's features reuse
+                # regime_probs_cache -- the same one-step-ahead history
+                # ERC and the frozen-model inference path below already
+                # use, never recomputed retroactively.
+                expanding_returns = returns.loc[:date]
+                expanding_baseline_feats = lstm_feature_matrix.loc[:date]
+                regime_prob_df = pd.DataFrame(
+                    regime_probs_cache[: abs_idx + 1], index=dates[: abs_idx + 1],
+                    columns=[f"regime_prob_{k}" for k in range(n_states)],
+                )
+                expanding_regime_feats = expanding_baseline_feats.join(regime_prob_df, how="inner")
+                for variant_name, feats in [
+                    ("baseline", expanding_baseline_feats),
+                    ("regime", expanding_regime_feats),
+                ]:
+                    windows, covs, fwd, _ = build_lstm_training_windows(
+                        feats, expanding_returns, seq_len=lstm_seq_len, cov_window=lstm_cov_window,
+                    )
+                    retrain_result = train_lstm_allocator(
+                        lstm_models[variant_name], windows, covs, fwd,
+                        n_epochs=lstm_retrain_n_epochs,
+                        turnover_penalty=lstm_turnover_penalty,
+                        shrinkage=shrinkage,
+                    )
+                    lstm_models[variant_name] = retrain_result["model"]
+                lstm_retrain_dates.append(date)
+
             if have_lstm:
                 # Same trailing-window position for the market-feature and
                 # regime-probability slices -- both are indexed by trading
@@ -515,4 +577,5 @@ def run_walk_forward(
         binding_constraints_history=binding_history,
         execution_history=execution_history,
         refit_dates=refit_dates,
+        lstm_retrain_dates=lstm_retrain_dates,
     )
