@@ -1,0 +1,13 @@
+arm,config,n_refits,sharpe,cagr,max_drawdown
+no_refit,erc_baseline,0,0.383,0.0187,-0.084
+no_refit,erc_regime,0,0.405,0.02,-0.0938
+no_refit,erc_blend,0,0.405,0.02,-0.0938
+no_refit,equal_weight,0,0.352,0.0222,-0.1331
+monthly,erc_baseline,48,0.385,0.0188,-0.0853
+monthly,erc_regime,48,0.386,0.0191,-0.0941
+monthly,erc_blend,48,0.386,0.0191,-0.0941
+monthly,equal_weight,48,0.352,0.0222,-0.1331
+quarterly,erc_baseline,16,0.384,0.0188,-0.0853
+quarterly,erc_regime,16,0.409,0.0203,-0.0934
+quarterly,erc_blend,16,0.409,0.0203,-0.0934
+quarterly,equal_weight,16,0.352,0.0222,-0.1331
