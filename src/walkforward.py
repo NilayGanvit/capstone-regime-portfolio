@@ -119,7 +119,7 @@ def _rebalance_dates(returns: pd.DataFrame) -> set:
     month_end_idx = returns.groupby([returns.index.year, returns.index.month]).apply(
         lambda g: g.index[-1]
     )
-    return set(month_end_idx.values)
+    return {pd.Timestamp(value) for value in month_end_idx}
 
 
 def run_walk_forward(
