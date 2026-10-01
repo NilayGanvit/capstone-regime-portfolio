@@ -85,12 +85,15 @@ def main() -> None:
         )
         runtime = time.time() - t0
         n_refits = len(result.refit_dates)
-        print(f"runtime: {runtime:.1f}s, {n_refits} refits over {len(result.dates)} validation days")
+        n_decisions = len(result.binding_constraints_history["erc_baseline"])
+        print(f"runtime: {runtime:.1f}s, {n_decisions} rebalance decisions, "
+              f"{n_refits} refits over {len(result.dates)} validation days")
         for config in ["erc_baseline", "erc_regime", "erc_blend", "equal_weight"]:
             r = result.portfolio_returns[config]
             rows.append({
                 "arm": arm_name,
                 "config": config,
+                "n_rebalance_decisions": n_decisions,
                 "n_refits": n_refits,
                 "sharpe": round(sharpe_ratio(r), 3),
                 "cagr": round(cagr(r), 4),

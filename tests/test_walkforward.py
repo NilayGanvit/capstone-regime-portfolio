@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import make_synthetic_universe, PriceDataset
-from walkforward import run_walk_forward, ewma_blend
+from walkforward import run_walk_forward, ewma_blend, _rebalance_dates
 from constraints import ConstraintSpec
 from allocation_lstm import _TORCH_AVAILABLE, _CVXPYLAYERS_AVAILABLE
 
@@ -23,6 +23,22 @@ def _synthetic_dataset_with_opens(n_days: int, seed: int, gap_scale: float) -> P
     opens = ds.prices.shift(1) * np.exp(gap)
     opens.iloc[0] = ds.prices.iloc[0]  # arbitrary; excluded from returns anyway
     return PriceDataset(ds.prices, opens)
+
+
+def test_rebalance_dates_match_timestamp_month_ends():
+    dates = pd.bdate_range("2024-01-15", "2024-04-10")
+    returns = pd.DataFrame({"asset": 0.0}, index=dates)
+
+    rebalance_dates = _rebalance_dates(returns)
+    expected = {
+        pd.Timestamp("2024-01-31"),
+        pd.Timestamp("2024-02-29"),
+        pd.Timestamp("2024-03-29"),
+        pd.Timestamp("2024-04-10"),
+    }
+
+    assert rebalance_dates == expected
+    assert all(date in rebalance_dates for date in expected)
 
 
 def test_walk_forward_runs_end_to_end_and_produces_valid_weights():
