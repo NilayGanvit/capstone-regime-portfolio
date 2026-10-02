@@ -82,9 +82,12 @@ def net_of_cost_returns(
     account only once on the total value of trades, not twice." Cost on
     an execution day is fee_bps/10000 * turnover, where `turnover` is the
     gross (buy+sell, not halved) turnover already used everywhere else in
-    this codebase -- applying the fee rate once to that gross figure is
-    exactly "once on the total value of trades," with no extra factor of
-    2 (see constraints.turnover's docstring).
+    this codebase. The cost is financed from portfolio equity at execution:
+    execution-day wealth is multiplied by (1 - cost_fraction), rather than
+    subtracting cost_fraction additively from the day's return. Applying
+    the fee rate once to gross turnover is exactly "once on the total value
+    of trades," with no extra factor of 2 (see constraints.turnover's
+    docstring).
 
     `dates`/`gross_returns` are one config's WalkForwardResult.dates and
     WalkForwardResult.portfolio_returns[config]; `execution_history` is
@@ -102,7 +105,8 @@ def net_of_cost_returns(
     for entry in execution_history:
         idx = date_to_idx.get(entry["date"])
         if idx is not None:
-            net[idx] -= fee_rate * entry["turnover"]
+            cost_fraction = fee_rate * entry["turnover"]
+            net[idx] = (1.0 + net[idx]) * (1.0 - cost_fraction) - 1.0
     return net
 
 
