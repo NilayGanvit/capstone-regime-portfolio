@@ -76,6 +76,10 @@ def test_net_of_cost_returns_deducts_only_on_execution_days():
 
 
 def test_net_of_cost_returns_scales_linearly_with_fee_bps():
+    # Under self-financing accounting,
+    # net = (1 + gross) * (1 - fee_rate * turnover) - 1.
+    # For fixed gross return and turnover, the cost effect remains linear
+    # in fee_rate, so doubling fee_bps doubles the transaction-cost effect.
     dates = pd.bdate_range("2020-01-01", periods=3).tolist()
     gross = np.array([0.01, 0.01, 0.01])
     execution_history = [{"date": dates[1], "turnover": 0.5}]
