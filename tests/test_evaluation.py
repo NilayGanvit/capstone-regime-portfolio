@@ -67,13 +67,19 @@ def test_net_of_cost_returns_deducts_only_on_execution_days():
     execution_history = [{"date": dates[1], "turnover": 0.4}, {"date": dates[3], "turnover": 0.2}]
     net = net_of_cost_returns(dates, gross, execution_history, fee_bps=5.0)
     expected = gross.copy()
-    expected[1] -= 0.0005 * 0.4
-    expected[3] -= 0.0005 * 0.2
+    expected[1] = (1.0 + gross[1]) * (1.0 - 0.0005 * 0.4) - 1.0
+    expected[3] = (1.0 + gross[3]) * (1.0 - 0.0005 * 0.2) - 1.0
+
+    # Non-execution days remain unchanged.
+    assert np.allclose(net[[0, 2, 4]], gross[[0, 2, 4]])
     assert np.allclose(net, expected)
-    assert net[0] == gross[0] and net[2] == gross[2] and net[4] == gross[4]
 
 
 def test_net_of_cost_returns_scales_linearly_with_fee_bps():
+    # Under self-financing accounting,
+    # net = (1 + gross) * (1 - fee_rate * turnover) - 1.
+    # For fixed gross return and turnover, the cost effect remains linear
+    # in fee_rate, so doubling fee_bps doubles the transaction-cost effect.
     dates = pd.bdate_range("2020-01-01", periods=3).tolist()
     gross = np.array([0.01, 0.01, 0.01])
     execution_history = [{"date": dates[1], "turnover": 0.5}]
@@ -110,3 +116,32 @@ def test_n_trials_from_log_matches_the_real_project_log():
     n = n_trials_from_log(str(repo_log))
     assert n >= 1
     assert isinstance(n, int)
+
+
+def test_net_of_cost_returns_self_finances_cost_before_return_accrual():
+    """Transaction costs paid at execution reduce capital available to earn returns."""
+    dates = [pd.Timestamp("2025-01-02")]
+
+    # Hand-checkable example:
+    # Opening NAV = $1,000
+    # Gross turnover = 20%
+    # Fee = 100 bps = 1% of traded value
+    # Cost = $1,000 * 0.20 * 0.01 = $2
+    # Capital after cost = $998
+    # Execution-day gross portfolio return = +10%
+    # Correct closing NAV = $998 * 1.10 = $1,097.80
+    gross_returns = np.array([0.10])
+    execution_history = [
+        {"date": dates[0], "turnover": 0.20}
+    ]
+
+    net = net_of_cost_returns(
+        dates=dates,
+        gross_returns=gross_returns,
+        execution_history=execution_history,
+        fee_bps=100.0,
+    )
+
+    expected_return = (1.0 + 0.10) * (1.0 - 0.01 * 0.20) - 1.0
+
+    assert np.isclose(net[0], expected_return)
