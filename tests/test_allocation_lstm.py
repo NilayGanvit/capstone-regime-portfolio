@@ -44,6 +44,40 @@ def test_lstm_forward_pass_shape():
 
 
 @pytest.mark.skipif(not _TORCH_AVAILABLE, reason="requires torch, install per requirements.txt")
+def test_risk_budget_lstm_same_random_state_gives_identical_weights():
+    """Two models built with the same random_state (including the
+    default, 123) must have bit-identical initial parameters -- the fix
+    for the run-to-run Sharpe variance AnnaLisa found in run_real_data.py,
+    where RiskBudgetLSTM's weight init previously depended on whatever
+    state the global torch RNG happened to be in."""
+    import torch
+    from allocation_lstm import RiskBudgetLSTM
+
+    model_a = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16)
+    model_b = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16)
+    for p_a, p_b in zip(model_a.parameters(), model_b.parameters()):
+        assert torch.equal(p_a, p_b)
+
+    model_c = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16, random_state=123)
+    for p_a, p_c in zip(model_a.parameters(), model_c.parameters()):
+        assert torch.equal(p_a, p_c)
+
+
+@pytest.mark.skipif(not _TORCH_AVAILABLE, reason="requires torch, install per requirements.txt")
+def test_risk_budget_lstm_different_random_state_gives_different_weights():
+    """Confirms random_state actually drives initialization (not a no-op
+    default) -- a different seed must produce a different model."""
+    import torch
+    from allocation_lstm import RiskBudgetLSTM
+
+    model_a = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16, random_state=1)
+    model_b = RiskBudgetLSTM(n_features=8, n_assets=10, hidden_size=16, random_state=2)
+    assert any(
+        not torch.equal(p_a, p_b) for p_a, p_b in zip(model_a.parameters(), model_b.parameters())
+    )
+
+
+@pytest.mark.skipif(not _TORCH_AVAILABLE, reason="requires torch, install per requirements.txt")
 def test_predict_budgets_shape_and_softmax_sum():
     from allocation_lstm import RiskBudgetLSTM, predict_budgets
     import numpy as np
