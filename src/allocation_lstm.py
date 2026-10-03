@@ -97,10 +97,25 @@ if _TORCH_AVAILABLE:
         vector per decision date, using the trailing sequence of feature
         vectors up to and including that date) -- matching the monthly
         decision cadence in the walk-forward harness.
+
+        `random_state` seeds `torch.manual_seed` immediately before the
+        LSTM/dense layers are constructed, so their (otherwise
+        global-RNG-dependent) initial weights -- the only source of
+        run-to-run randomness in train_lstm_allocator, which has no
+        dropout and trains full-batch (no DataLoader shuffling) -- are
+        reproducible. Defaults to 123 rather than None so every existing
+        caller (run_real_data.py, run_lstm_training.py, and the test
+        suite) gets a deterministic model unless it opts out by passing
+        None (e.g. for a seed-sensitivity robustness check).
         """
 
-        def __init__(self, n_features: int, n_assets: int, hidden_size: int = 32, num_layers: int = 1):
+        def __init__(
+            self, n_features: int, n_assets: int, hidden_size: int = 32,
+            num_layers: int = 1, random_state: int | None = 123,
+        ):
             super().__init__()
+            if random_state is not None:
+                torch.manual_seed(random_state)
             self.lstm = nn.LSTM(input_size=n_features, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
             self.dense = nn.Linear(hidden_size, n_assets)
 

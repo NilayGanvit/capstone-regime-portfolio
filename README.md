@@ -142,6 +142,17 @@ the ERC-only walk-forward harness — does not depend on either package.
   return per monthly rebalance, not a re-implementation of
   `run_walk_forward`'s day-by-day scheduled-refit/regime-mixture-
   covariance machinery.
+- **The LSTM is now reproducible run-to-run.** `RiskBudgetLSTM`'s weight
+  initialization previously depended on whatever state the global torch
+  RNG happened to be in, so re-running `run_real_data.py` produced a
+  genuinely different trained model (and materially different Sharpe --
+  e.g. baseline 0.808 vs 0.709 across two runs) each time, since nothing
+  seeded torch. `RiskBudgetLSTM` now takes `random_state` (default 123)
+  and calls `torch.manual_seed` immediately before constructing its
+  layers -- the only source of run-to-run randomness in
+  `train_lstm_allocator`, which has no dropout and trains full-batch
+  (no `DataLoader` shuffling). Pass `random_state=None` to opt back into
+  an unseeded run (e.g. for a seed-sensitivity robustness check).
 - **The trained LSTM is now wired into `run_walk_forward`** as
   `lstm_baseline`/`lstm_regime`/`lstm_blend` configs, via the opt-in
   `lstm_models`/`lstm_feature_matrix` parameters (`allocation_lstm.
