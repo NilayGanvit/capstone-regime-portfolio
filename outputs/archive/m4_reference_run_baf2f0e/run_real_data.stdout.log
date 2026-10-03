@@ -1,0 +1,108 @@
+==============================================================================
+REAL-DATA RUN -- actual ten-ETF universe, 2007-04-11 onward
+==============================================================================
+
+Loaded 4892 trading days, 2007-04-12 to 2026-09-21, tickers: ['SPY', 'EFA', 'EEM', 'IEF', 'TLT', 'LQD', 'HYG', 'GLD', 'DBC', 'VNQ']
+Open prices available -- rebalances execute at the next session's open per M2, not at the decision-day close.
+Initial training window per M2's calendar: 1946 trading days through 2014-12-31
+
+--- Training LSTM baseline/regime allocators on the initial window only (200 epochs each) ---
+LSTM baseline: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM baseline: trained in 21.0s, loss -0.5623 -> -1.3577
+LSTM regime: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM regime: trained in 19.6s, loss -0.5723 -> -1.6953
+LSTM training runtime: 41.6s
+
+
+Walk-forward runtime: 138.6s over 2946 trading days, 7 configs
+
+--- VALIDATION (2015-01-01 -- 2018-12-31): development/tuning period, not a final-test result [1006 days] ---
+               n_days  sharpe    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                               
+erc_baseline     1006   0.384  0.0188       -0.0853    0.549   0.220        0.0068             0.1348
+erc_regime       1006   0.409  0.0203       -0.0934    0.592   0.218        0.0084             0.1236
+erc_blend        1006   0.409  0.0203       -0.0934    0.592   0.218        0.0084             0.1236
+equal_weight     1006   0.352  0.0222       -0.1331    0.510   0.167        0.0078             0.1000
+lstm_baseline    1006   0.411  0.0205       -0.0859    0.604   0.239        0.0132             0.1600
+lstm_regime      1006   0.489  0.0362       -0.1065    0.640   0.340        0.0137             0.1982
+lstm_blend       1006   0.489  0.0362       -0.1065    0.640   0.340        0.0137             0.1982
+
+--- FINAL TEST (2019-01-01 -- 2026-08-31): the frozen, one-shot out-of-sample result [1926 days] ---
+               n_days  sharpe    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                               
+erc_baseline     1926   0.799  0.0634       -0.2022    1.042   0.313        0.0076             0.1318
+erc_regime       1926   0.810  0.0643       -0.2122    1.057   0.303        0.0107             0.1242
+erc_blend        1926   0.814  0.0646       -0.2122    1.062   0.305        0.0107             0.1242
+equal_weight     1926   0.883  0.0881       -0.1995    1.074   0.442        0.0090             0.1001
+lstm_baseline    1926   0.808  0.0743       -0.2386    1.091   0.312        0.0132             0.1678
+lstm_regime      1926   0.861  0.1076       -0.2700    1.027   0.398        0.0121             0.2158
+lstm_blend       1926   0.852  0.1058       -0.2700    1.017   0.392        0.0123             0.2141
+Saved to /Users/nilay.ganvit/Downloads/WQU/Capstone Project/capstone-regime-portfolio/outputs/real_data_summary.csv
+
+--- AFTER M2's calendar (post 2026-08-31): exploratory only, excluded from the final-test figure [14 days] ---
+               n_days  sharpe    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                               
+erc_baseline       14  -1.270 -0.0790       -0.0152   -2.422  -5.187        0.0065             0.1280
+erc_regime         14  -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+erc_blend          14  -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+equal_weight       14  -0.457 -0.0365       -0.0172   -0.867  -2.119        0.0078             0.1000
+lstm_baseline      14  -1.285 -0.0974       -0.0190   -2.802  -5.131        0.0056             0.1677
+lstm_regime        14  -1.821 -0.1524       -0.0240   -5.606  -6.355        0.0078             0.2209
+lstm_blend         14  -1.821 -0.1524       -0.0240   -5.606  -6.355        0.0078             0.2209
+
+--- Paired block-bootstrap on the final test: erc_blend vs erc_baseline (Sharpe difference) ---
+point estimate: 0.015, 90% CI: [-0.051, 0.069]
+
+--- Transaction costs: 5/10/25 bps sensitivity, final test only (M2's proposed baseline plus sensitivity checks) ---
+                       sharpe_net  cagr_net
+config        fee_bps                      
+erc_baseline  5.0           0.797    0.0632
+              10.0          0.796    0.0631
+              25.0          0.791    0.0627
+erc_regime    5.0           0.804    0.0638
+              10.0          0.798    0.0633
+              25.0          0.779    0.0617
+erc_blend     5.0           0.807    0.0641
+              10.0          0.801    0.0636
+              25.0          0.782    0.0619
+equal_weight  5.0           0.881    0.0879
+              10.0          0.880    0.0878
+              25.0          0.876    0.0873
+lstm_baseline 5.0           0.799    0.0735
+              10.0          0.791    0.0727
+              25.0          0.767    0.0702
+lstm_regime   5.0           0.856    0.1069
+              10.0          0.851    0.1061
+              25.0          0.835    0.1039
+lstm_blend    5.0           0.847    0.1050
+              10.0          0.841    0.1043
+              25.0          0.825    0.1020
+Saved to /Users/nilay.ganvit/Downloads/WQU/Capstone Project/capstone-regime-portfolio/outputs/real_data_cost_sensitivity.csv
+
+--- Transaction log (final test, 5 bps -- M2's proposed baseline) ---
+Saved per-config detail to /Users/nilay.ganvit/Downloads/WQU/Capstone Project/capstone-regime-portfolio/outputs/real_data_transaction_log_<config>.csv
+
+--- Deflated Sharpe Ratio, final test, net of 5 bps costs ---
+n_trials = 7 (from trial_log.csv, performance-driven comparisons only -- see that file's notes column)
+erc_baseline: net-of-cost Sharpe=0.797, DSR=0.054
+erc_regime: net-of-cost Sharpe=0.804, DSR=0.056
+erc_blend: net-of-cost Sharpe=0.807, DSR=0.057
+equal_weight: net-of-cost Sharpe=0.881, DSR=0.087
+lstm_baseline: net-of-cost Sharpe=0.799, DSR=0.053
+lstm_regime: net-of-cost Sharpe=0.856, DSR=0.077
+lstm_blend: net-of-cost Sharpe=0.847, DSR=0.073
+
+--- Reliability path pi_t (full walk-forward history) ---
+mean pi_t: 0.979  min: 0.000  max: 1.000
+
+--- Binding constraints on final-test rebalances (M2/M3: 'we will report on which constraints are binding') ---
+erc_baseline: 92 final-test rebalances, 0 with turnover binding, 0 with a weight bound binding
+erc_regime: 92 final-test rebalances, 5 with turnover binding, 1 with a weight bound binding
+erc_blend: 92 final-test rebalances, 5 with turnover binding, 1 with a weight bound binding
+equal_weight: 92 final-test rebalances, 0 with turnover binding, 0 with a weight bound binding
+lstm_baseline: 92 final-test rebalances, 29 with turnover binding, 87 with a weight bound binding
+lstm_regime: 92 final-test rebalances, 8 with turnover binding, 90 with a weight bound binding
+lstm_blend: 92 final-test rebalances, 11 with turnover binding, 78 with a weight bound binding
+Saved per-config detail to /Users/nilay.ganvit/Downloads/WQU/Capstone Project/capstone-regime-portfolio/outputs/real_data_binding_constraints_<config>.csv
+
+These are real-universe numbers for all six M2 evaluation-table configs (ERC and LSTM, each baseline/regime/blend) plus equal_weight, from one harness run -- but the LSTM models are trained once on the initial window only and never retrained mid-walk, unlike the HMM/M0/M1 (see this script's and walkforward.py's module docstrings before citing specific figures in M3/M4). Only the FINAL TEST block above is the number to cite; VALIDATION exists for development and must not be reported as an out-of-sample result. real_data_summary.csv is GROSS of transaction costs -- the 5 bps net-of-cost figure (M2's proposed baseline) is in real_data_cost_sensitivity.csv and the DSR line above, not in real_data_summary.csv.
