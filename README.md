@@ -153,6 +153,22 @@ the ERC-only walk-forward harness — does not depend on either package.
   `train_lstm_allocator`, which has no dropout and trains full-batch
   (no `DataLoader` shuffling). Pass `random_state=None` to opt back into
   an unseeded run (e.g. for a seed-sensitivity robustness check).
+  **This reproducibility is within one pinned environment, not across
+  CPU architectures.** We verified directly (same seed, torch 2.11.0
+  vs 2.14.0, same machine) that `RiskBudgetLSTM`'s weight init and
+  forward pass are bit-identical across those torch versions on the
+  same CPU -- the frozen-LSTM Sharpe gap observed between Nilay's local
+  arm64 run and AnnaLisa's Colab (x86_64) run instead traces to CPU
+  architecture/BLAS differences (and the numpy/scipy-backed
+  `cvxpylayers` solve inside training), compounded over 200 epochs of
+  non-convex optimization -- see
+  `outputs/archive/m4_reference_run_baf2f0e/MANIFEST.md`'s
+  "Cross-environment numerical drift" section for the full isolation.
+  `requirements-reference-lock.txt` pins the group's shared reference
+  environment to Colab's exact versions (not this repo's own
+  `requirements.txt`, which floats); the canonical M4 run should be
+  *executed* on Colab, not merely installed with Colab's versions on a
+  different machine.
 - **The trained LSTM is now wired into `run_walk_forward`** as
   `lstm_baseline`/`lstm_regime`/`lstm_blend` configs, via the opt-in
   `lstm_models`/`lstm_feature_matrix` parameters (`allocation_lstm.

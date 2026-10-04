@@ -4,6 +4,23 @@ Archived per Silvio's request (2026-10-02 Slack thread) once PR #3 was
 merged: "use that version, with seed 123 and the corrected cost
 calculation, as our reference run for M4." This is that run.
 
+> **STATUS UPDATE (2026-10-04):** this run was generated on Nilay's
+> local Mac venv (arm64, torch 2.14.0), not on Colab. AnnaLisa's
+> frozen-LSTM validation Sharpe figures (baseline 0.380, regime 0.418,
+> from her Colab cadence check) differ from this run's validation
+> figures (baseline 0.411, regime 0.489) despite identical code, seed,
+> and input data (see "Cross-environment numerical drift" below for
+> the isolated cause). Since Colab -- not any one member's local
+> machine -- is the environment the whole group can reach, the group
+> decided to pin the *reference* environment to Colab's package
+> versions (`requirements-reference-lock.txt`, repo root) going
+> forward. **This archive remains useful for its commit/code/data
+> provenance, but its specific numeric values should be treated as
+> superseded once an equivalent run is archived from Colab itself
+> under `requirements-reference-lock.txt`'s pinned versions** -- a
+> same-version install on different CPU architectures is not enough,
+> per the isolation test below.
+
 ## Code
 
 - **Repository:** capstone-regime-portfolio (NilayGanvit/capstone-regime-portfolio)
@@ -83,6 +100,45 @@ not a version pin) is what makes this reproducible across environments
 rather than pinning to one specific NumPy/pandas pair. If exact
 environment parity with Colab is needed, compare against this list
 before aligning.
+
+## Cross-environment numerical drift (isolated 2026-10-04)
+
+AnnaLisa's Colab frozen-LSTM validation Sharpe (baseline 0.380, regime
+0.418) differs from this archive's (baseline 0.411, regime 0.489) on
+identical code, seed (123), and input data (SHA-256-verified). She
+attributed this to torch 2.14.0 (this run) vs 2.11.0 (Colab). We
+isolated it further on Nilay's Mac: constructing `RiskBudgetLSTM` with
+`random_state=123` under torch 2.14.0 and torch 2.11.0 side by side
+(same arm64 machine) gave **bit-identical** initial weights, and
+feeding both a fixed, RNG-free input through a full forward pass gave
+**bit-identical** output tensors. So the torch *version* difference,
+by itself, is not what produced the Sharpe gap -- at least not via
+weight init or forward-pass arithmetic on the same CPU.
+
+The remaining, uncontrolled variable is CPU architecture: this run is
+arm64 (Apple Silicon); Colab's CPU runtime is x86_64. Different
+vectorized instruction sets and BLAS backends reorder floating-point
+summation inside matrix multiplications, which is exactly what
+PyTorch's own documentation warns about: "results may not be
+reproducible between CPU and GPU executions, even when using identical
+seeds" and, more generally, "are not guaranteed across... different
+platforms." The same applies to the differentiable risk-budgeting
+layer's convex solve inside training (`cvxpylayers`/`cvxpy`, whose
+linear algebra runs through numpy/scipy), which both AnnaLisa's and
+this run's numpy/scipy versions also differ on. Training compounds
+small per-step floating-point differences over 200 epochs of
+non-convex optimization, so even a tiny per-op discrepancy can produce
+a visibly different trained model by the end -- AnnaLisa separately
+confirmed the *initial* training loss (epoch 0) already differs
+between the two runs, consistent with this.
+
+Practical takeaway: `torch.manual_seed` (and this project's
+`random_state` plumbing) reproduces results *within* one pinned
+environment on one architecture, not across architectures. Pinning
+package versions (`requirements-reference-lock.txt`) is necessary but
+not sufficient on its own -- the canonical M4 reference run should be
+*executed* on Colab, not merely installed with Colab's package
+versions on a different machine.
 
 ## Headline final-test numbers (gross, from this run)
 
