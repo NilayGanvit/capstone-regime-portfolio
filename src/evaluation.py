@@ -117,38 +117,431 @@ def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
     return float(np.mean(np.sum(np.abs(weights - drifted_weights), axis=1)))
 
 
+
+def optimal_stationary_block_length(x: np.ndarray) -> float:
+    """Estimate the optimal expected block length for the stationary bootstrap.
+
+    Implements the automatic block-length selection procedure of Politis and
+    White (2004) using the stationary-bootstrap correction of Patton, Politis,
+    and White (2009).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        One-dimensional stationary time series.
+
+    Returns
+    -------
+    float
+        Estimated optimal expected stationary-bootstrap block length.
+    """
+    x = np.asarray(x, dtype=float).reshape(-1)
+    x = x[np.isfinite(x)]
+    n = len(x)
+
+    if n < 10:
+        raise ValueError("At least 10 finite observations are required.")
+
+    x = x - x.mean()
+
+    # Patton/Politis/White automatic bandwidth-selection constants.
+    kn = max(5, int(np.sqrt(np.log10(n))))
+    m_max = int(np.ceil(np.sqrt(n) + kn))
+    threshold = 2.0 * np.sqrt(np.log10(n) / n)
+
+    # Autocovariances use the common 1/n normalization.
+    gamma = np.empty(m_max + 1)
+    gamma[0] = np.dot(x, x) / n
+    if gamma[0] <= 0:
+        return 1.0
+
+    for lag in range(1, m_max + 1):
+        gamma[lag] = np.dot(x[lag:], x[:-lag]) / n
+
+    rho = gamma / gamma[0]
+
+    # Find the first run of kn consecutive insignificant autocorrelations.
+    m_hat = None
+    for start in range(1, m_max - kn + 2):
+        if np.all(np.abs(rho[start:start + kn]) < threshold):
+            m_hat = start
+            break
+
+    if m_hat is None:
+        m_hat = m_max
+
+    m = min(2 * m_hat, m_max)
+
+    lags = np.arange(1, m + 1, dtype=float)
+
+    # Flat-top (trapezoidal) lag window.
+    h = np.where(
+        lags / m <= 0.5,
+        1.0,
+        2.0 * (1.0 - lags / m),
+    )
+
+    # Symmetry over positive and negative lags.
+    g = 2.0 * np.sum(h * lags * gamma[1:m + 1])
+    sigma2 = gamma[0] + 2.0 * np.sum(h * gamma[1:m + 1])
+
+    # Patton, Politis & White (2009): corrected stationary-bootstrap
+    # variance constant D_SB = 2 * g(0)^2.
+    d_sb = 2.0 * sigma2**2
+
+    if d_sb <= 0 or not np.isfinite(d_sb) or not np.isfinite(g):
+        return 1.0
+
+    b_opt = ((2.0 * g**2 / d_sb) * n) ** (1.0 / 3.0)
+
+    # Finite-sample upper bound used by the automatic selector.
+    b_max = np.ceil(min(3.0 * np.sqrt(n), n / 3.0))
+    return float(np.clip(b_opt, 1.0, b_max))
+
+
+def stationary_bootstrap_indices(
+    n: int,
+    expected_block_length: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Generate one stationary-bootstrap index sequence.
+
+    Blocks have geometrically distributed lengths with expected length
+    ``expected_block_length``. A single returned index sequence can be
+    applied to every aligned strategy return series so that paired
+    calendar dependence is preserved.
+    """
+    if n < 1:
+        raise ValueError("n must be at least 1.")
+    if not np.isfinite(expected_block_length) or expected_block_length < 1.0:
+        raise ValueError("expected_block_length must be finite and at least 1.")
+
+    restart_probability = 1.0 / expected_block_length
+
+    idx = np.empty(n, dtype=int)
+    idx[0] = rng.integers(0, n)
+
+    for t in range(1, n):
+        if rng.random() < restart_probability:
+            idx[t] = rng.integers(0, n)
+        else:
+            idx[t] = (idx[t - 1] + 1) % n
+
+    return idx
+
 def block_bootstrap_diff_ci(
     returns_a: np.ndarray,
     returns_b: np.ndarray,
     stat_fn=sharpe_ratio,
-    block_size: int = 20,
+    block_size: float | None = None,
     n_boot: int = 2000,
-    ci: float = 0.90,
+    ci: float = 0.95,
     random_state: int = 0,
 ) -> dict:
-    """Paired (same dates) block-bootstrap confidence interval for
-    stat_fn(returns_a) - stat_fn(returns_b), preserving each series'
-    autocorrelation via non-overlapping-block resampling and keeping the
-    two series paired by resampling the *same* block indices for both.
+    """Paired stationary-bootstrap confidence interval for a statistic difference.
+
+    Computes ``stat_fn(returns_a) - stat_fn(returns_b)`` using the same
+    stationary-bootstrap index sequence for both aligned return series.
+
+    If ``block_size`` is None, the expected block length is selected
+    automatically from the paired return-difference series using the
+    Politis-White (2004) procedure with the Patton-Politis-White (2009)
+    stationary-bootstrap correction. Supplying ``block_size`` overrides
+    automatic selection and uses that value as the expected block length.
+
+    Parameters
+    ----------
+    returns_a, returns_b : np.ndarray
+        Return series aligned on identical dates.
+    stat_fn : callable
+        Statistic computed separately on each return series.
+    block_size : float or None
+        Expected stationary-bootstrap block length. If None, select
+        automatically.
+    n_boot : int
+        Number of bootstrap replications.
+    ci : float
+        Confidence level. Default is 0.95.
+    random_state : int
+        Seed for reproducible resampling.
     """
-    returns_a = np.asarray(returns_a)
-    returns_b = np.asarray(returns_b)
-    assert len(returns_a) == len(returns_b), "Series must be paired on identical dates."
-    n = len(returns_a)
-    n_blocks = int(np.ceil(n / block_size))
+    returns_a = np.asarray(returns_a, dtype=float).reshape(-1)
+    returns_b = np.asarray(returns_b, dtype=float).reshape(-1)
+
+    if len(returns_a) != len(returns_b):
+        raise ValueError("Series must be paired on identical dates.")
+    if len(returns_a) < 10:
+        raise ValueError("At least 10 paired observations are required.")
+    if not np.all(np.isfinite(returns_a)) or not np.all(np.isfinite(returns_b)):
+        raise ValueError("Return series must contain only finite values.")
+    if n_boot < 1:
+        raise ValueError("n_boot must be at least 1.")
+    if not 0.0 < ci < 1.0:
+        raise ValueError("ci must lie strictly between 0 and 1.")
+
+    if block_size is None:
+        expected_block_length = optimal_stationary_block_length(
+            returns_a - returns_b
+        )
+        block_length_source = "automatic"
+    else:
+        expected_block_length = float(block_size)
+        if not np.isfinite(expected_block_length) or expected_block_length < 1.0:
+            raise ValueError("block_size must be finite and at least 1.")
+        block_length_source = "user"
+
     rng = np.random.default_rng(random_state)
 
-    point_estimate = stat_fn(returns_a) - stat_fn(returns_b)
-    diffs = np.empty(n_boot)
+    point_estimate = float(stat_fn(returns_a) - stat_fn(returns_b))
+    diffs = np.empty(n_boot, dtype=float)
+
     for b in range(n_boot):
-        block_starts = rng.integers(0, n - block_size + 1, size=n_blocks)
-        idx = np.concatenate([np.arange(s, s + block_size) for s in block_starts])[:n]
+        idx = stationary_bootstrap_indices(
+            n=len(returns_a),
+            expected_block_length=expected_block_length,
+            rng=rng,
+        )
         diffs[b] = stat_fn(returns_a[idx]) - stat_fn(returns_b[idx])
 
-    alpha = 1 - ci
-    lo, hi = np.quantile(diffs, [alpha / 2, 1 - alpha / 2])
-    return {"point_estimate": point_estimate, "ci_low": float(lo), "ci_high": float(hi), "ci_level": ci}
+    alpha = 1.0 - ci
+    lo, hi = np.quantile(diffs, [alpha / 2.0, 1.0 - alpha / 2.0])
 
+    return {
+        "point_estimate": point_estimate,
+        "ci_low": float(lo),
+        "ci_high": float(hi),
+        "ci_level": float(ci),
+        "expected_block_length": float(expected_block_length),
+        "block_length_source": block_length_source,
+        "bootstrap_method": "stationary",
+    }
+
+
+def stationary_bootstrap_rq_contrasts(
+    portfolio_returns: dict[str, np.ndarray],
+    stat_fn=sharpe_ratio,
+    block_size: float | None = None,
+    n_boot: int = 2000,
+    ci: float = 0.95,
+    random_state: int = 0,
+) -> dict[str, dict]:
+    """Synchronized stationary-bootstrap inference for RQ1-RQ3 contrasts.
+
+    All six strategy return series must be aligned on identical dates.
+    Each bootstrap replication uses one common stationary-bootstrap index
+    sequence for every strategy, preserving cross-strategy dependence.
+
+    The five reported contrasts are:
+
+    RQ1 ERC:
+        stat(erc_regime) - stat(erc_baseline)
+
+    RQ1 LSTM:
+        stat(lstm_regime) - stat(lstm_baseline)
+
+    RQ2 difference-in-differences:
+        [stat(lstm_regime) - stat(lstm_baseline)]
+        - [stat(erc_regime) - stat(erc_baseline)]
+
+    RQ3 ERC:
+        stat(erc_blend) - stat(erc_regime)
+
+    RQ3 LSTM:
+        stat(lstm_blend) - stat(lstm_regime)
+
+    If ``block_size`` is None, the Politis-White/Patton selector is
+    applied separately to each of the five RQ return-contrast series.
+    The largest selected expected block length is used as the common
+    dependence scale for synchronized resampling.
+    """
+    required = (
+        "erc_baseline",
+        "erc_regime",
+        "erc_blend",
+        "lstm_baseline",
+        "lstm_regime",
+        "lstm_blend",
+    )
+
+    missing = [name for name in required if name not in portfolio_returns]
+    if missing:
+        raise ValueError(f"Missing required strategy returns: {missing}")
+
+    returns = {
+        name: np.asarray(portfolio_returns[name], dtype=float).reshape(-1)
+        for name in required
+    }
+
+    lengths = {len(x) for x in returns.values()}
+    if len(lengths) != 1:
+        raise ValueError("All strategy return series must have identical length.")
+
+    n = lengths.pop()
+    if n < 10:
+        raise ValueError("At least 10 aligned observations are required.")
+
+    if any(not np.all(np.isfinite(x)) for x in returns.values()):
+        raise ValueError("Strategy return series must contain only finite values.")
+    if n_boot < 1:
+        raise ValueError("n_boot must be at least 1.")
+    if not 0.0 < ci < 1.0:
+        raise ValueError("ci must lie strictly between 0 and 1.")
+
+    # Select a dependence scale separately for each pre-specified RQ
+    # contrast. The corrected Politis-White automatic selector is applied
+    # to the corresponding daily return-contrast series. Within each
+    # contrast, the constituent portfolio return series are subsequently
+    # resampled with the same stationary-bootstrap index sequence so that
+    # contemporaneous cross-strategy dependence is preserved.
+    selector_series = {
+        "rq1_erc_regime_effect":
+            returns["erc_regime"] - returns["erc_baseline"],
+        "rq1_lstm_regime_effect":
+            returns["lstm_regime"] - returns["lstm_baseline"],
+        "rq2_difference_in_differences":
+            (returns["lstm_regime"] - returns["lstm_baseline"])
+            - (returns["erc_regime"] - returns["erc_baseline"]),
+        "rq3_erc_reliability_effect":
+            returns["erc_blend"] - returns["erc_regime"],
+        "rq3_lstm_reliability_effect":
+            returns["lstm_blend"] - returns["lstm_regime"],
+    }
+
+    if block_size is None:
+        contrast_block_lengths = {
+            name: optimal_stationary_block_length(series)
+            for name, series in selector_series.items()
+        }
+        block_length_source = "automatic_contrast_specific"
+    else:
+        expected_block_length = float(block_size)
+        if not np.isfinite(expected_block_length) or expected_block_length < 1.0:
+            raise ValueError("block_size must be finite and at least 1.")
+        contrast_block_lengths = {
+            name: expected_block_length
+            for name in selector_series
+        }
+        block_length_source = "user_common_override"
+
+    def compute_contrasts(sample: dict[str, np.ndarray]) -> dict[str, float]:
+        stats = {name: float(stat_fn(x)) for name, x in sample.items()}
+
+        rq1_erc = stats["erc_regime"] - stats["erc_baseline"]
+        rq1_lstm = stats["lstm_regime"] - stats["lstm_baseline"]
+
+        return {
+            "rq1_erc_regime_effect": rq1_erc,
+            "rq1_lstm_regime_effect": rq1_lstm,
+            "rq2_difference_in_differences": rq1_lstm - rq1_erc,
+            "rq3_erc_reliability_effect":
+                stats["erc_blend"] - stats["erc_regime"],
+            "rq3_lstm_reliability_effect":
+                stats["lstm_blend"] - stats["lstm_regime"],
+        }
+
+    point = compute_contrasts(returns)
+    boot = {name: np.empty(n_boot, dtype=float) for name in point}
+
+    contrast_members = {
+        "rq1_erc_regime_effect": (
+            "erc_baseline",
+            "erc_regime",
+        ),
+        "rq1_lstm_regime_effect": (
+            "lstm_baseline",
+            "lstm_regime",
+        ),
+        "rq2_difference_in_differences": (
+            "erc_baseline",
+            "erc_regime",
+            "lstm_baseline",
+            "lstm_regime",
+        ),
+        "rq3_erc_reliability_effect": (
+            "erc_regime",
+            "erc_blend",
+        ),
+        "rq3_lstm_reliability_effect": (
+            "lstm_regime",
+            "lstm_blend",
+        ),
+    }
+
+    # Give each planned contrast its own reproducible RNG stream. Within a
+    # contrast, one index sequence is shared by every constituent strategy,
+    # preserving their contemporaneous dependence.
+    seed_sequence = np.random.SeedSequence(random_state)
+    child_seeds = seed_sequence.spawn(len(point))
+
+    for (contrast_name, members), child_seed in zip(
+        contrast_members.items(),
+        child_seeds,
+    ):
+        rng = np.random.default_rng(child_seed)
+        expected_block_length = contrast_block_lengths[contrast_name]
+
+        for b in range(n_boot):
+            idx = stationary_bootstrap_indices(
+                n=n,
+                expected_block_length=expected_block_length,
+                rng=rng,
+            )
+
+            sample = {
+                name: returns[name][idx]
+                for name in members
+            }
+
+            stats = {
+                name: float(stat_fn(x))
+                for name, x in sample.items()
+            }
+
+            if contrast_name == "rq1_erc_regime_effect":
+                value = stats["erc_regime"] - stats["erc_baseline"]
+            elif contrast_name == "rq1_lstm_regime_effect":
+                value = stats["lstm_regime"] - stats["lstm_baseline"]
+            elif contrast_name == "rq2_difference_in_differences":
+                value = (
+                    stats["lstm_regime"] - stats["lstm_baseline"]
+                    - stats["erc_regime"] + stats["erc_baseline"]
+                )
+            elif contrast_name == "rq3_erc_reliability_effect":
+                value = stats["erc_blend"] - stats["erc_regime"]
+            else:
+                value = stats["lstm_blend"] - stats["lstm_regime"]
+
+            boot[contrast_name][b] = value
+
+    alpha = 1.0 - ci
+    results = {}
+
+    for name, point_estimate in point.items():
+        lo, hi = np.quantile(
+            boot[name],
+            [alpha / 2.0, 1.0 - alpha / 2.0],
+        )
+
+        results[name] = {
+            "point_estimate": float(point_estimate),
+            "ci_low": float(lo),
+            "ci_high": float(hi),
+            "ci_level": float(ci),
+        }
+
+    results["_bootstrap"] = {
+        "method": "stationary",
+        "block_length_source": block_length_source,
+        "contrast_block_lengths": {
+            name: float(value)
+            for name, value in contrast_block_lengths.items()
+        },
+        "n_boot": int(n_boot),
+        "synchronization": "within_contrast",
+        "selector_series": "daily_return_contrast",
+    }
+
+    return results
 
 def n_trials_from_log(path: str) -> int:
     """Count the specifications actually evaluated for *performance-driven

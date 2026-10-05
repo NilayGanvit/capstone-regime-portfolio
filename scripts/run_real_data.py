@@ -73,8 +73,9 @@ from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
-    herfindahl_concentration, average_turnover, block_bootstrap_diff_ci,
+    herfindahl_concentration, average_turnover,
     net_of_cost_returns, deflated_sharpe_ratio, n_trials_from_log,
+    stationary_bootstrap_rq_contrasts,
 )
 
 FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
@@ -268,9 +269,9 @@ def main() -> None:
             stage_counts[stage] = 0
 
     for stage, heading in [
-        ("validation", "VALIDATION (2015-01-01 -- 2018-12-31): development/tuning period, not a final-test result"),
-        ("final_test", "FINAL TEST (2019-01-01 -- 2026-08-31): the frozen, one-shot out-of-sample result"),
-        ("post_final_test", "AFTER M2's calendar (post 2026-08-31): exploratory only, excluded from the final-test figure"),
+        ("validation", "VALIDATION (2015-01-01 -- 2018-12-31): development and specification-selection period"),
+        ("final_test", "EXPLORATORY HISTORICAL WALK-FORWARD (2019-01-01 -- 2026-08-31): non-anticipative evaluation, but not an independent holdout because this period was previously inspected"),
+        ("post_final_test", "POST-EVALUATION PERIOD (post 2026-08-31): exploratory only, reported separately"),
     ]:
         n = int(stage_counts[stage])
         print(f"--- {heading} [{n} days] ---")
@@ -287,29 +288,119 @@ def main() -> None:
 
     final_test_mask = (stages == "final_test").to_numpy()
     if final_test_mask.any():
-        print("--- Paired block-bootstrap on the final test: erc_blend vs erc_baseline (Sharpe difference) ---")
-        ci = block_bootstrap_diff_ci(
-            result.portfolio_returns["erc_blend"][final_test_mask],
-            result.portfolio_returns["erc_baseline"][final_test_mask],
-            n_boot=1000, random_state=0,
+        print("--- Paired stationary-bootstrap inference for RQ1-RQ3 (5-bp net returns) ---")
+
+        rq_config_names = [
+            "erc_baseline",
+            "erc_regime",
+            "erc_blend",
+            "lstm_baseline",
+            "lstm_regime",
+            "lstm_blend",
+        ]
+        rq_returns = {
+            name: net_of_cost_returns(
+                result.dates,
+                result.portfolio_returns[name],
+                result.execution_history[name],
+                fee_bps=5.0,
+            )[final_test_mask]
+            for name in rq_config_names
+        }
+
+        rq_return_table = pd.DataFrame(
+            {
+                "date": pd.to_datetime(np.asarray(result.dates)[final_test_mask]),
+                **{name: rq_returns[name] for name in rq_config_names},
+            }
         )
-        print(f"point estimate: {ci['point_estimate']:.3f}, "
-              f"{int(ci['ci_level']*100)}% CI: [{ci['ci_low']:.3f}, {ci['ci_high']:.3f}]")
+        rq_returns_path = out_dir / "real_data_rq_net_returns_5bps.csv"
+        rq_return_table.to_csv(rq_returns_path, index=False)
+        print(f"Saved bootstrap input returns to {rq_returns_path}")
+
+        rq_ci = stationary_bootstrap_rq_contrasts(
+            rq_returns,
+            n_boot=2000,
+            ci=0.95,
+            random_state=0,
+        )
+
+        labels = {
+            "rq1_erc_regime_effect":
+                "RQ1 ERC: regime - baseline",
+            "rq1_lstm_regime_effect":
+                "RQ1 LSTM: regime - baseline",
+            "rq2_difference_in_differences":
+                "RQ2 DiD: LSTM regime effect - ERC regime effect",
+            "rq3_erc_reliability_effect":
+                "RQ3 ERC: blend - regime",
+            "rq3_lstm_reliability_effect":
+                "RQ3 LSTM: blend - regime",
+        }
+
+        for key, label in labels.items():
+            item = rq_ci[key]
+            print(
+                f"{label}: {item['point_estimate']:.3f}, "
+                f"{int(item['ci_level'] * 100)}% CI "
+                f"[{item['ci_low']:.3f}, {item['ci_high']:.3f}]"
+            )
+
+        meta = rq_ci["_bootstrap"]
+        print(
+            "Stationary bootstrap: "
+            f"{meta['n_boot']} replications per contrast, "
+            f"selection={meta['block_length_source']}, "
+            f"synchronization={meta['synchronization']}"
+        )
+        for key, label in labels.items():
+            print(
+                f"  {label}: expected block length="
+                f"{meta['contrast_block_lengths'][key]:.3f}"
+            )
+
+        rq_rows = []
+        for key, label in labels.items():
+            item = rq_ci[key]
+            rq_rows.append({
+                "contrast": key,
+                "label": label,
+                "point_estimate": item["point_estimate"],
+                "ci_low": item["ci_low"],
+                "ci_high": item["ci_high"],
+                "ci_level": item["ci_level"],
+                "fee_bps": 5.0,
+                "n_boot": meta["n_boot"],
+                "expected_block_length":
+                    meta["contrast_block_lengths"][key],
+                "block_length_source": meta["block_length_source"],
+                "selector_series": meta["selector_series"],
+                "synchronization": meta["synchronization"],
+                "evaluation_start": "2019-01-01",
+                "evaluation_end": "2026-08-31",
+                "evaluation_status":
+                    "exploratory_historical_walk_forward",
+            })
+
+        rq_table = pd.DataFrame(rq_rows)
+        rq_path = out_dir / "real_data_rq_stationary_bootstrap.csv"
+        rq_table.to_csv(rq_path, index=False)
+        print(f"Saved to {rq_path}")
 
     if final_test_mask.any():
-        print("\n--- Transaction costs: 5/10/25 bps sensitivity, final test only (M2's proposed baseline plus sensitivity checks) ---")
+        print("\n--- Transaction costs: 5/10/25 bps sensitivity, exploratory historical walk-forward period ---")
         cost_table = cost_sensitivity_table(result, stages)
         print(cost_table.to_string())
         cost_table.to_csv(out_dir / "real_data_cost_sensitivity.csv")
         print(f"Saved to {out_dir / 'real_data_cost_sensitivity.csv'}")
 
-        print("\n--- Transaction log (final test, 5 bps -- M2's proposed baseline) ---")
+        print("\n--- Transaction log (exploratory historical walk-forward period, 5 bps) ---")
         for config in result.execution_history:
             tx_log = transaction_log_dataframe(result.execution_history[config], calendar, "final_test", fee_bps=5.0)
             tx_log.to_csv(out_dir / f"real_data_transaction_log_{config}.csv", index=False)
         print(f"Saved per-config detail to {out_dir}/real_data_transaction_log_<config>.csv")
 
-        print("\n--- Deflated Sharpe Ratio, final test, net of 5 bps costs ---")
+        print("\n--- Deflated Sharpe Ratio, exploratory historical walk-forward period, net of 5 bps costs ---")
         n_trials = n_trials_from_log(str(TRIAL_LOG_PATH))
         print(f"n_trials = {n_trials} (from {TRIAL_LOG_PATH.name}, performance-driven comparisons only -- see that file's notes column)")
         for config in result.portfolio_returns:
@@ -325,27 +416,28 @@ def main() -> None:
 
     pd.Series(result.pi_history, index=result.dates, name="pi_t").to_csv(out_dir / "real_data_pi_path.csv")
 
-    print("\n--- Binding constraints on final-test rebalances (M2/M3: 'we will "
-          "report on which constraints are binding') ---")
+    print("\n--- Binding constraints on exploratory historical walk-forward rebalances ---")
     for config, binding_history in result.binding_constraints_history.items():
         table = binding_constraints_dataframe(binding_history, calendar, "final_test")
         n_turnover_binding = int(table["turnover_binding"].sum()) if len(table) else 0
         n_bound_binding = int((table["lower_bound_binding"].astype(bool) | table["upper_bound_binding"].astype(bool)).sum()) if len(table) else 0
-        print(f"{config}: {len(table)} final-test rebalances, "
+        print(f"{config}: {len(table)} exploratory-period rebalances, "
               f"{n_turnover_binding} with turnover binding, "
               f"{n_bound_binding} with a weight bound binding")
         table.to_csv(out_dir / f"real_data_binding_constraints_{config}.csv", index=False)
     print(f"Saved per-config detail to {out_dir}/real_data_binding_constraints_<config>.csv")
-    print("\nThese are real-universe numbers for all six M2 evaluation-table configs "
-          "(ERC and LSTM, each baseline/regime/blend) plus equal_weight, from one "
-          "harness run -- but the LSTM models are trained once on the initial window "
-          "only and never retrained mid-walk, unlike the HMM/M0/M1 (see this script's "
-          "and walkforward.py's module docstrings before citing specific figures in "
-          "M3/M4). Only the FINAL TEST block above is the number to cite; VALIDATION "
-          "exists for development and must not be reported as an out-of-sample result. "
-          "real_data_summary.csv is GROSS of transaction costs -- the 5 bps net-of-cost "
-          "figure (M2's proposed baseline) is in real_data_cost_sensitivity.csv and the "
-          "DSR line above, not in real_data_summary.csv.")
+    print("\nThe run reports all six primary configurations "
+          "(ERC and LSTM, each baseline/regime/blend) plus equal_weight. "
+          "The primary LSTM parameters are trained on the initial estimation window "
+          "and remain fixed during the walk-forward evaluation, while the HMM, "
+          "predictive-density models, and state covariance estimates are refit on "
+          "their scheduled expanding-window cadence. The 2015-2018 period is used "
+          "for development and specification selection. The 2019-2026 results are "
+          "non-anticipative historical walk-forward evidence but are not an "
+          "independent holdout because that period was previously inspected. "
+          "real_data_summary.csv reports gross performance. Net-of-cost results "
+          "under the 5, 10, and 25 basis-point assumptions are reported in "
+          "real_data_cost_sensitivity.csv; DSR is reported separately above.")
 
 
 if __name__ == "__main__":
