@@ -90,8 +90,84 @@ def require_cvxpylayers() -> None:
 
 if _TORCH_AVAILABLE:
 
+    def bounded_softmax(
+        logits: "torch.Tensor",
+        lower_bound: float = 0.0,
+        dim: int = -1,
+    ) -> "torch.Tensor":
+        """Softmax risk budgets subject to b_i >= lower_bound and sum(b) = 1.
+
+        Solves the entropy-regularized bounded-simplex problem described by
+        Parra-Diaz & Castro-Iragorri:
+
+            minimize_b  sum_i b_i log(b_i) - logits^T b
+            subject to  sum_i b_i = 1
+                        b_i >= lower_bound
+
+        The solution has the form
+
+            b_i = max(lower_bound, exp(logits_i - tau)),
+
+        where tau is chosen so that the budgets sum to one.
+
+        lower_bound=0.0 returns ordinary torch.softmax exactly, preserving
+        the frozen reference specification.
+        """
+        if lower_bound == 0.0:
+            return torch.softmax(logits, dim=dim)
+
+        n_assets = logits.shape[dim]
+        if lower_bound < 0.0 or lower_bound >= 1.0 / n_assets:
+            raise ValueError(
+                f"lower_bound must satisfy 0 <= u < 1/n_assets; "
+                f"got u={lower_bound}, n_assets={n_assets}"
+            )
+
+        # Move the asset dimension to the end so the active-set calculation
+        # works for arbitrary leading batch dimensions.
+        z = logits.movedim(dim, -1)
+
+        # Sort logits from largest to smallest.  For each possible number k
+        # of assets above the floor, compute the normalizing constant for
+        # the remaining probability mass 1 - (n-k)u.
+        z_sorted, _ = torch.sort(z, dim=-1, descending=True)
+        exp_z = torch.exp(z_sorted - z_sorted[..., :1])
+        cumsum_exp = torch.cumsum(exp_z, dim=-1)
+
+        k_vals = torch.arange(
+            1, n_assets + 1, device=logits.device, dtype=logits.dtype
+        )
+        remaining_mass = 1.0 - (n_assets - k_vals) * lower_bound
+        scale = remaining_mass / cumsum_exp
+
+        candidate = exp_z * scale
+
+        # k is self-consistent when the kth active budget is >= u and,
+        # when k<n, the next candidate budget would be <= u.
+        active_ok = candidate >= lower_bound
+        k_star = active_ok.sum(dim=-1).clamp(min=1, max=n_assets)
+
+        gather_idx = (k_star - 1).unsqueeze(-1)
+        scale_star = torch.gather(scale, -1, gather_idx)
+
+        exp_original = torch.exp(z - z_sorted[..., :1])
+        budgets = torch.maximum(
+            exp_original * scale_star,
+            torch.as_tensor(lower_bound, dtype=logits.dtype, device=logits.device),
+        )
+
+        # Numerical cleanup only; mathematically the active-set solution
+        # already sums to one.
+        budgets = budgets / budgets.sum(dim=-1, keepdim=True)
+
+        return budgets.movedim(-1, dim)
+
+
     class RiskBudgetLSTM(nn.Module):
-        """features (T, n_features) -> softmax risk budgets (n_assets,).
+        """features (T, n_features) -> learned risk budgets (n_assets,).
+
+        Uses ordinary softmax when budget_floor=0.0 (the frozen reference
+        specification) and bounded softmax when budget_floor>0.
 
         Consumes the *last* hidden state of the LSTM (i.e. one risk-budget
         vector per decision date, using the trailing sequence of feature
@@ -103,28 +179,45 @@ if _TORCH_AVAILABLE:
         global-RNG-dependent) initial weights -- the only source of
         run-to-run randomness in train_lstm_allocator, which has no
         dropout and trains full-batch (no DataLoader shuffling) -- are
-        reproducible. Defaults to 123 rather than None so every existing
-        caller (run_real_data.py, run_lstm_training.py, and the test
-        suite) gets a deterministic model unless it opts out by passing
-        None (e.g. for a seed-sensitivity robustness check).
+        reproducible.
         """
 
         def __init__(
             self, n_features: int, n_assets: int, hidden_size: int = 32,
             num_layers: int = 1, random_state: int | None = 123,
+            budget_floor: float = 0.0,
         ):
             super().__init__()
+
+            if budget_floor < 0.0 or budget_floor >= 1.0 / n_assets:
+                raise ValueError(
+                    f"budget_floor must satisfy 0 <= u < 1/n_assets; "
+                    f"got u={budget_floor}, n_assets={n_assets}"
+                )
+
             if random_state is not None:
                 torch.manual_seed(random_state)
-            self.lstm = nn.LSTM(input_size=n_features, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
+
+            self.n_assets = n_assets
+            self.budget_floor = float(budget_floor)
+            self.lstm = nn.LSTM(
+                input_size=n_features,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+            )
             self.dense = nn.Linear(hidden_size, n_assets)
 
         def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-            """x: (batch, seq_len, n_features) -> (batch, n_assets) softmax budgets."""
+            """x: (batch, seq_len, n_features) -> (batch, n_assets) budgets."""
             _, (h_n, _) = self.lstm(x)
-            last_hidden = h_n[-1]  # (batch, hidden_size), final layer's hidden state
+            last_hidden = h_n[-1]
             logits = self.dense(last_hidden)
-            return torch.softmax(logits, dim=-1)
+            return bounded_softmax(
+                logits,
+                lower_bound=self.budget_floor,
+                dim=-1,
+            )
 
 
 def sharpe_turnover_loss(
