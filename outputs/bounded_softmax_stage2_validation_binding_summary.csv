@@ -1,0 +1,7 @@
+floor,config,mean_rebalances,mean_lower_bound_binds,mean_upper_bound_binds,mean_turnover_binds,mean_turnover,mean_pre_constraint_RC_max_dev,mean_post_constraint_RC_max_dev
+0.025,lstm_baseline,48.0,20.0,17.0,10.6,0.10678006952708216,,
+0.025,lstm_blend,48.0,1.0,31.4,13.0,0.12360427279860949,,
+0.025,lstm_regime,48.0,1.4,31.4,13.0,0.12360497160111103,,
+0.05,lstm_baseline,48.0,29.0,4.4,11.0,0.10248593008767984,,
+0.05,lstm_blend,48.0,15.4,1.8,14.0,0.13945404724524485,,
+0.05,lstm_regime,48.0,15.4,1.8,14.0,0.13946182903647178,,
