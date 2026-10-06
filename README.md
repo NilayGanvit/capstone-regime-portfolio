@@ -191,6 +191,24 @@ the ERC-only walk-forward harness — does not depend on either package.
   allocator/density -- both are off by default and evaluated only via
   `scripts/run_hrp_and_nu_robustness.py`, which compares each against
   ERC's own regime/reliability effect on the real universe's final test.
+- **The DSR's `sharpe_variance_across_trials` stays on its documented
+  unit-variance placeholder** (see `deflated_sharpe_ratio`'s docstring),
+  not an empirical estimate, even though the underlying trial Sharpes
+  are now recovered. `outputs/trial_candidate_sharpes.csv` records the
+  per-candidate Sharpe value behind every `outputs/trial_log.csv`
+  `counts_toward_dsr_trials=True` row, with full source provenance --
+  no daily return path survives for any of them, only rounded summary
+  Sharpes (several only ever existed in a commit message, never a
+  saved CSV). `evaluation.trial_sharpe_variance_sensitivity` computes
+  the sample variance under a few individually-defensible inclusion
+  choices (deduped vs including redundant/no-op rows; all trials vs
+  excluding the ad-hoc pre-calendar-split comparisons); every scenario
+  draws from only 5-13 candidates, several of which are sequential
+  refinements of the same underlying run rather than independent
+  strategy attempts. That's too small/non-independent a sample to
+  trust over the placeholder, so it's reported by `run_real_data.py`
+  as a disclosed sensitivity check alongside the primary DSR figure,
+  not swapped in as a replacement.
 
 ## Next steps
 

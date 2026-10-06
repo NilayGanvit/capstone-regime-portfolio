@@ -13,6 +13,8 @@ from evaluation import (
     optimal_stationary_block_length,
     stationary_bootstrap_indices,
     stationary_bootstrap_rq_contrasts,
+    load_trial_candidate_sharpes,
+    trial_sharpe_variance_sensitivity,
 )
 
 
@@ -475,3 +477,57 @@ def test_net_of_cost_returns_self_finances_cost_before_return_accrual():
     expected_return = (1.0 + 0.10) * (1.0 - 0.01 * 0.20) - 1.0
 
     assert np.isclose(net[0], expected_return)
+
+
+def _write_candidate_fixture(path):
+    path.write_text(
+        "trial_id,candidate_label,metric_type,value,evaluation_sample,redundant_with,source,notes\n"
+        "1,a,sharpe,0.40,clean,,src,\n"
+        "1,b,sharpe,0.50,clean,,src,\n"
+        "2,c,sharpe,0.60,ad_hoc_pre_calendar_blend,,src,\n"
+        "2,d,sharpe,0.60,ad_hoc_pre_calendar_blend,1_b,src,duplicate of row b\n"
+        "3,e,effect_size_sharpe_diff,0.01,clean,,src,different units -- must not pool with sharpe rows\n"
+    )
+
+
+def test_load_trial_candidate_sharpes_filters_metric_type(tmp_path):
+    path = tmp_path / "candidates.csv"
+    _write_candidate_fixture(path)
+    sharpes = load_trial_candidate_sharpes(str(path), metric_type="sharpe", dedupe=False)
+    assert sorted(sharpes.tolist()) == [0.4, 0.5, 0.6, 0.6]
+
+    effect_sizes = load_trial_candidate_sharpes(str(path), metric_type="effect_size_sharpe_diff", dedupe=False)
+    assert effect_sizes.tolist() == [0.01]
+
+
+def test_load_trial_candidate_sharpes_dedupe_drops_redundant_rows(tmp_path):
+    path = tmp_path / "candidates.csv"
+    _write_candidate_fixture(path)
+    deduped = load_trial_candidate_sharpes(str(path), metric_type="sharpe", dedupe=True)
+    assert sorted(deduped.tolist()) == [0.4, 0.5, 0.6]
+
+
+def test_trial_sharpe_variance_sensitivity_excludes_contaminated_sample(tmp_path):
+    path = tmp_path / "candidates.csv"
+    _write_candidate_fixture(path)
+    result = trial_sharpe_variance_sensitivity(str(path))
+    assert set(result.keys()) == {"deduped_all_trials", "including_redundant_rows", "clean_sample_only"}
+    # clean_sample_only keeps only rows 'a' and 'b' (evaluation_sample == 'clean')
+    assert result["clean_sample_only"]["n"] == 2
+    assert result["deduped_all_trials"]["n"] == 3
+    assert result["including_redundant_rows"]["n"] == 4
+    for stats in result.values():
+        assert stats["variance"] >= 0.0 or np.isnan(stats["variance"])
+
+
+def test_trial_sharpe_variance_sensitivity_on_real_project_log():
+    """The repo's actual recovered-candidate log should load and produce
+    a small-n diagnostic -- this is the concrete answer to "does the
+    trial log contain enough candidates to replace the DSR placeholder"
+    (no: every scenario draws from well under 15 candidates, several
+    non-independent)."""
+    repo_path = Path(__file__).resolve().parents[1] / "outputs" / "trial_candidate_sharpes.csv"
+    result = trial_sharpe_variance_sensitivity(str(repo_path))
+    for stats in result.values():
+        assert 0 < stats["n"] < 15
+        assert np.isfinite(stats["variance"])

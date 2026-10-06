@@ -564,6 +564,87 @@ def n_trials_from_log(path: str) -> int:
     return sum(1 for row in rows if row["counts_toward_dsr_trials"].strip().lower() == "true")
 
 
+def load_trial_candidate_sharpes(
+    path: str,
+    metric_type: str = "sharpe",
+    dedupe: bool = True,
+) -> np.ndarray:
+    """Load the recovered per-candidate performance values behind
+    outputs/trial_log.csv's `counts_toward_dsr_trials=True` rows, from
+    outputs/trial_candidate_sharpes.csv -- the audit trail answering
+    "can the underlying candidate results be recovered" (AnnaLisa,
+    2026-10-xx): no daily return path survives for any of these trials
+    (only rounded summary Sharpes were ever saved, and several only
+    exist in commit messages, not a CSV), but the Sharpe *values*
+    themselves do, with per-row provenance in that file's `source`
+    column.
+
+    `metric_type` filters to rows on comparable units -- trial 11's two
+    rows are Sharpe *differences* (regime-effect sizes, ~0.01), not
+    raw Sharpe levels (~0.4-0.9) like every other trial, and must not
+    be pooled with them. Default 'sharpe' excludes trial 11.
+
+    `dedupe=True` (default) drops rows flagged `redundant_with`
+    another row -- several "candidates" are the same underlying run
+    re-appearing across sequential trials (e.g. trial 4's EWMA-disabled
+    case is byte-for-byte trial 3's warm-start case) and contribute no
+    new information; including them would silently inflate the
+    candidate count without adding independent evidence.
+    """
+    import csv
+
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    selected = [
+        row for row in rows
+        if row["metric_type"].strip() == metric_type
+        and (not dedupe or not row["redundant_with"].strip())
+    ]
+    return np.array([float(row["value"]) for row in selected])
+
+
+def trial_sharpe_variance_sensitivity(path: str) -> dict:
+    """Diagnose whether outputs/trial_candidate_sharpes.csv supports a
+    trustworthy empirical replacement for deflated_sharpe_ratio's
+    `sharpe_variance_across_trials=1.0` placeholder, rather than just
+    computing a number and swapping it in.
+
+    Returns the sample variance under a few inclusion choices, each
+    individually defensible, so the *spread* across them -- not any
+    single number -- is the actual diagnostic. A small, heterogeneous,
+    partly non-independent set of candidates (several trials are
+    sequential refinements of the same underlying run, not independent
+    attempts at distinct strategies) can make this estimate swing
+    sharply on essentially arbitrary inclusion choices, which is itself
+    evidence the placeholder should not yet be silently replaced.
+    """
+    deduped = load_trial_candidate_sharpes(path, metric_type="sharpe", dedupe=True)
+    all_rows = load_trial_candidate_sharpes(path, metric_type="sharpe", dedupe=False)
+
+    import csv
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    clean_only = np.array([
+        float(row["value"]) for row in rows
+        if row["metric_type"].strip() == "sharpe"
+        and not row["redundant_with"].strip()
+        and row["evaluation_sample"].strip() != "ad_hoc_pre_calendar_blend"
+    ])
+
+    def summarize(x: np.ndarray) -> dict:
+        return {
+            "n": int(len(x)),
+            "variance": float(np.var(x, ddof=1)) if len(x) > 1 else float("nan"),
+            "std": float(np.std(x, ddof=1)) if len(x) > 1 else float("nan"),
+        }
+
+    return {
+        "deduped_all_trials": summarize(deduped),
+        "including_redundant_rows": summarize(all_rows),
+        "clean_sample_only": summarize(clean_only),
+    }
+
+
 def deflated_sharpe_ratio(
     observed_sharpe: float,
     returns: np.ndarray,

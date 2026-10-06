@@ -52,6 +52,16 @@ Silvio's M3 review (2026-09-25): quarterly refit was chosen by comparing
 Sharpe over a sample that includes the designated final-test window, so
 it is not yet a validation-only-derived default.
 
+`sharpe_variance_across_trials` stays on deflated_sharpe_ratio's
+documented unit-variance placeholder, not an empirical estimate --
+outputs/trial_candidate_sharpes.csv recovers the per-candidate Sharpe
+values behind trial_log.csv's True rows (AnnaLisa, 2026-10-xx: "can the
+underlying candidate results be recovered"), but
+evaluation.trial_sharpe_variance_sensitivity shows that set is too
+small and heterogeneous (5-13 candidates depending on inclusion
+choice, several non-independent) to trust over the placeholder; it is
+reported below as a disclosed sensitivity check only.
+
 Usage:
     python scripts/run_real_data.py
 """
@@ -75,11 +85,12 @@ from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
     herfindahl_concentration, average_turnover,
     net_of_cost_returns, deflated_sharpe_ratio, n_trials_from_log,
-    stationary_bootstrap_rq_contrasts,
+    stationary_bootstrap_rq_contrasts, trial_sharpe_variance_sensitivity,
 )
 
 FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
 TRIAL_LOG_PATH = Path(__file__).resolve().parents[1] / "outputs" / "trial_log.csv"
+TRIAL_CANDIDATE_SHARPES_PATH = Path(__file__).resolve().parents[1] / "outputs" / "trial_candidate_sharpes.csv"
 LSTM_SEQ_LEN = 60
 LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
@@ -403,12 +414,30 @@ def main() -> None:
         print("\n--- Deflated Sharpe Ratio, exploratory historical walk-forward period, net of 5 bps costs ---")
         n_trials = n_trials_from_log(str(TRIAL_LOG_PATH))
         print(f"n_trials = {n_trials} (from {TRIAL_LOG_PATH.name}, performance-driven comparisons only -- see that file's notes column)")
+        print("sharpe_variance_across_trials uses the documented unit-variance placeholder "
+              "(primary; see deflated_sharpe_ratio's docstring) -- NOT an empirical estimate. "
+              "See the sensitivity check immediately below for why.")
         for config in result.portfolio_returns:
             net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
             net_final = net_5bps[final_test_mask]
             sr = sharpe_ratio(net_final)
             dsr = deflated_sharpe_ratio(observed_sharpe=sr, returns=net_final, n_trials=n_trials)
             print(f"{config}: net-of-cost Sharpe={sr:.3f}, DSR={dsr:.3f}")
+
+        print("\n--- DSR variance-placeholder sensitivity check (diagnostic only, not primary) ---")
+        print("outputs/trial_candidate_sharpes.csv recovers the per-candidate Sharpe values "
+              "behind trial_log.csv's True rows (no daily return path survives for any of "
+              "them). This checks whether that recovered set is large/independent/comparable "
+              "enough to replace the 1.0 placeholder -- the spread ACROSS these inclusion "
+              "choices is the actual diagnostic, not any single number:")
+        sensitivity = trial_sharpe_variance_sensitivity(str(TRIAL_CANDIDATE_SHARPES_PATH))
+        for scenario, stats in sensitivity.items():
+            print(f"  {scenario}: n={stats['n']}, variance={stats['variance']:.4f}, std={stats['std']:.4f}")
+        print("All three scenarios draw from n=5-13 candidates, several of which are "
+              "sequential refinements of the same underlying run rather than independent "
+              "strategy attempts -- too few/non-independent to trust over the placeholder. "
+              "The 1.0 placeholder therefore remains the primary DSR input above; this is "
+              "reported as a disclosed sensitivity check, not a replacement.")
 
     print("\n--- Reliability path pi_t (full walk-forward history) ---")
     pi = np.array(result.pi_history)
