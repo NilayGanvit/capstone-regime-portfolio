@@ -15,6 +15,9 @@ from evaluation import (
     stationary_bootstrap_rq_contrasts,
     load_trial_candidate_sharpes,
     trial_sharpe_variance_sensitivity,
+    trial_candidate_sharpes_by_family,
+    dsr_sensitivity_grid,
+    build_dsr_sensitivity_scenarios,
 )
 
 
@@ -531,3 +534,76 @@ def test_trial_sharpe_variance_sensitivity_on_real_project_log():
     for stats in result.values():
         assert 0 < stats["n"] < 15
         assert np.isfinite(stats["variance"])
+
+
+def test_trial_candidate_sharpes_by_family_groups_by_evaluation_sample(tmp_path):
+    path = tmp_path / "candidates.csv"
+    _write_candidate_fixture(path)
+    families = trial_candidate_sharpes_by_family(str(path))
+    # 'clean' family keeps rows a, b; 'ad_hoc_pre_calendar_blend' keeps only
+    # row c (row d is redundant_with 1_b and dropped); trial 3's effect-size
+    # row never appears (wrong metric_type).
+    assert set(families.keys()) == {"clean", "ad_hoc_pre_calendar_blend"}
+    assert sorted(families["clean"].tolist()) == [0.4, 0.5]
+    assert families["ad_hoc_pre_calendar_blend"].tolist() == [0.6]
+
+
+def test_dsr_sensitivity_grid_covers_every_scenario_pair():
+    rng = np.random.default_rng(0)
+    returns = rng.normal(0.0005, 0.01, 500)
+    sr = sharpe_ratio(returns)
+    variance_scenarios = {"low": 0.01, "high": 1.0}
+    k_scenarios = {"k3": 3, "k7": 7}
+
+    grid = dsr_sensitivity_grid(
+        observed_sharpe=sr, returns=returns,
+        variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
+    )
+
+    assert set(grid.keys()) == {"low", "high"}
+    for row in grid.values():
+        assert set(row.keys()) == {"k3", "k7"}
+
+    # Each cell must equal calling deflated_sharpe_ratio directly with
+    # that exact (variance, K) pair -- the grid is a thin wrapper, not a
+    # different computation.
+    for v_name, variance in variance_scenarios.items():
+        for k_name, k in k_scenarios.items():
+            expected = deflated_sharpe_ratio(
+                observed_sharpe=sr, returns=returns, n_trials=k,
+                sharpe_variance_across_trials=variance,
+            )
+            assert np.isclose(grid[v_name][k_name], expected)
+
+
+def test_dsr_sensitivity_grid_is_unstable_between_unit_and_empirical_variance():
+    """The concrete finding behind AnnaLisa's sensitivity-DSR proposal:
+    holding K fixed, the conventional unit-variance scenario and a
+    realistic small cross-trial variance disagree sharply -- this
+    instability, not either single value, is what should be reported."""
+    rng = np.random.default_rng(0)
+    returns = rng.normal(0.0008, 0.01, 1000)
+    sr = sharpe_ratio(returns)
+
+    dsr_small_variance = deflated_sharpe_ratio(
+        observed_sharpe=sr, returns=returns, n_trials=7, sharpe_variance_across_trials=0.03,
+    )
+    dsr_unit_variance = deflated_sharpe_ratio(
+        observed_sharpe=sr, returns=returns, n_trials=7, sharpe_variance_across_trials=1.0,
+    )
+    assert dsr_small_variance > dsr_unit_variance + 0.2
+
+
+def test_build_dsr_sensitivity_scenarios_on_real_project_files():
+    trial_log = Path(__file__).resolve().parents[1] / "outputs" / "trial_log.csv"
+    candidates = Path(__file__).resolve().parents[1] / "outputs" / "trial_candidate_sharpes.csv"
+    variance_scenarios, k_scenarios = build_dsr_sensitivity_scenarios(str(trial_log), str(candidates))
+
+    assert "conventional_unit_variance" in variance_scenarios
+    assert variance_scenarios["conventional_unit_variance"] == 1.0
+    assert all(0.0 < v < 1.0 for name, v in variance_scenarios.items() if name != "conventional_unit_variance")
+
+    assert set(k_scenarios.keys()) == {
+        "literal_logged_trials", "deduped_candidate_count", "coherent_search_families",
+    }
+    assert all(isinstance(k, int) and k > 0 for k in k_scenarios.values())

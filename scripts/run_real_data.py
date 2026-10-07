@@ -43,24 +43,24 @@ derives net-of-cost returns at 5/10/25 bps from one run via
 evaluation.net_of_cost_returns and reports the 5 bps figure (M2's
 proposed baseline) as the headline final-test number, with 10/25 bps as
 a documented sensitivity table -- not three separate walk-forward runs.
-The Deflated Sharpe Ratio uses the 5 bps net final-test Sharpe and
-n_trials read from outputs/trial_log.csv (evaluation.n_trials_from_log),
-which only counts rows recording an actual performance-driven
-comparison, not plain correctness fixes -- see that file's own notes
-column, including the still-open refit-cadence question flagged by
-Silvio's M3 review (2026-09-25): quarterly refit was chosen by comparing
-Sharpe over a sample that includes the designated final-test window, so
-it is not yet a validation-only-derived default.
 
-`sharpe_variance_across_trials` stays on deflated_sharpe_ratio's
-documented unit-variance placeholder, not an empirical estimate --
-outputs/trial_candidate_sharpes.csv recovers the per-candidate Sharpe
-values behind trial_log.csv's True rows (AnnaLisa, 2026-10-xx: "can the
-underlying candidate results be recovered"), but
-evaluation.trial_sharpe_variance_sensitivity shows that set is too
-small and heterogeneous (5-13 candidates depending on inclusion
-choice, several non-independent) to trust over the placeholder; it is
-reported below as a disclosed sensitivity check only.
+The Deflated Sharpe Ratio is reported as a disclosed sensitivity grid
+(evaluation.dsr_sensitivity_grid), not one "primary" DSR, over both of
+its uncertain inputs jointly: the cross-trial Sharpe variance and the
+effective number of trials K. outputs/trial_candidate_sharpes.csv
+recovers the per-candidate Sharpe behind every outputs/trial_log.csv
+`counts_toward_dsr_trials=True` row (no daily return path survives for
+any of them); evaluation.build_dsr_sensitivity_scenarios turns that
+recovered set into several variance scenarios (pooled and per coherent
+evaluation-sample family) and several K scenarios (literal logged
+trial count, deduped candidate count, coherent search-family count),
+following Lopez de Prado & Porcu (2026)'s framing that search-adjusted
+significance depends jointly on effective trial count and cross-trial
+dispersion, with neither fixed while the other varies. The conventional
+unit-variance value is included as one scenario among several, not as
+the default -- neither paper grounds it as a preferred fallback when
+the actual cross-trial variance is uncertain, only as what the
+original Bailey (2014) formula requires an input for.
 
 Usage:
     python scripts/run_real_data.py
@@ -84,8 +84,8 @@ from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
     herfindahl_concentration, average_turnover,
-    net_of_cost_returns, deflated_sharpe_ratio, n_trials_from_log,
-    stationary_bootstrap_rq_contrasts, trial_sharpe_variance_sensitivity,
+    net_of_cost_returns, stationary_bootstrap_rq_contrasts,
+    build_dsr_sensitivity_scenarios, dsr_sensitivity_grid,
 )
 
 FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
@@ -411,33 +411,55 @@ def main() -> None:
             tx_log.to_csv(out_dir / f"real_data_transaction_log_{config}.csv", index=False)
         print(f"Saved per-config detail to {out_dir}/real_data_transaction_log_<config>.csv")
 
-        print("\n--- Deflated Sharpe Ratio, exploratory historical walk-forward period, net of 5 bps costs ---")
-        n_trials = n_trials_from_log(str(TRIAL_LOG_PATH))
-        print(f"n_trials = {n_trials} (from {TRIAL_LOG_PATH.name}, performance-driven comparisons only -- see that file's notes column)")
-        print("sharpe_variance_across_trials uses the documented unit-variance placeholder "
-              "(primary; see deflated_sharpe_ratio's docstring) -- NOT an empirical estimate. "
-              "See the sensitivity check immediately below for why.")
+        print("\n--- Deflated Sharpe Ratio sensitivity grid, exploratory historical walk-forward period, net of 5 bps costs ---")
+        print("No single (sharpe_variance_across_trials, n_trials) pair is treated as primary "
+              "-- Lopez de Prado & Porcu (2026) frame search-adjusted significance as depending "
+              "jointly on effective trial count AND cross-trial dispersion, and recommend "
+              "reporting a disclosed range over defensible assumptions when dependence among "
+              "candidates (here, several trials are sequential refinements of the same "
+              "underlying run) cannot be estimated directly -- which is the case here since no "
+              "daily return path survives for any historical trial. See "
+              "outputs/trial_candidate_sharpes.csv for the recovered per-candidate Sharpes and "
+              "evaluation.build_dsr_sensitivity_scenarios for how the grid below is assembled.")
+        variance_scenarios, k_scenarios = build_dsr_sensitivity_scenarios(
+            str(TRIAL_LOG_PATH), str(TRIAL_CANDIDATE_SHARPES_PATH),
+        )
+        print("\nVariance scenarios (cross-trial Sharpe variance):")
+        for name, value in variance_scenarios.items():
+            print(f"  {name}: {value:.4f}")
+        print("K scenarios (effective number of trials):")
+        for name, value in k_scenarios.items():
+            print(f"  {name}: {value}")
+
+        grid_rows = []
         for config in result.portfolio_returns:
             net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
             net_final = net_5bps[final_test_mask]
             sr = sharpe_ratio(net_final)
-            dsr = deflated_sharpe_ratio(observed_sharpe=sr, returns=net_final, n_trials=n_trials)
-            print(f"{config}: net-of-cost Sharpe={sr:.3f}, DSR={dsr:.3f}")
-
-        print("\n--- DSR variance-placeholder sensitivity check (diagnostic only, not primary) ---")
-        print("outputs/trial_candidate_sharpes.csv recovers the per-candidate Sharpe values "
-              "behind trial_log.csv's True rows (no daily return path survives for any of "
-              "them). This checks whether that recovered set is large/independent/comparable "
-              "enough to replace the 1.0 placeholder -- the spread ACROSS these inclusion "
-              "choices is the actual diagnostic, not any single number:")
-        sensitivity = trial_sharpe_variance_sensitivity(str(TRIAL_CANDIDATE_SHARPES_PATH))
-        for scenario, stats in sensitivity.items():
-            print(f"  {scenario}: n={stats['n']}, variance={stats['variance']:.4f}, std={stats['std']:.4f}")
-        print("All three scenarios draw from n=5-13 candidates, several of which are "
-              "sequential refinements of the same underlying run rather than independent "
-              "strategy attempts -- too few/non-independent to trust over the placeholder. "
-              "The 1.0 placeholder therefore remains the primary DSR input above; this is "
-              "reported as a disclosed sensitivity check, not a replacement.")
+            grid = dsr_sensitivity_grid(
+                observed_sharpe=sr, returns=net_final,
+                variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
+            )
+            all_dsr = [v for row in grid.values() for v in row.values()]
+            print(f"{config}: net-of-cost Sharpe={sr:.3f}, DSR range=[{min(all_dsr):.3f}, {max(all_dsr):.3f}] "
+                  f"across {len(variance_scenarios)}x{len(k_scenarios)} assumption grid")
+            for v_name, row in grid.items():
+                for k_name, dsr in row.items():
+                    grid_rows.append({
+                        "config": config, "sharpe": round(sr, 4),
+                        "variance_scenario": v_name, "variance_value": round(variance_scenarios[v_name], 4),
+                        "k_scenario": k_name, "k_value": k_scenarios[k_name],
+                        "dsr": round(dsr, 4),
+                    })
+        pd.DataFrame(grid_rows).to_csv(out_dir / "real_data_dsr_sensitivity_grid.csv", index=False)
+        print(f"Saved full grid to {out_dir / 'real_data_dsr_sensitivity_grid.csv'}")
+        print("Compare each config's printed range above against the variance/K scenarios: on "
+              "the archived reference run, every recovered empirical-variance scenario (pooled "
+              "or per-family) lands far above the conventional unit-variance scenario regardless "
+              "of which K is used -- a wide, config-independent swing driven almost entirely by "
+              "the variance assumption. If that pattern holds here too, the DSR conclusion is "
+              "NOT stable across this grid, which is itself the reportable finding, not any "
+              "single cell.")
 
     print("\n--- Reliability path pi_t (full walk-forward history) ---")
     pi = np.array(result.pi_history)

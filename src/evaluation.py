@@ -645,6 +645,123 @@ def trial_sharpe_variance_sensitivity(path: str) -> dict:
     }
 
 
+def trial_candidate_sharpes_by_family(path: str) -> dict[str, np.ndarray]:
+    """Group outputs/trial_candidate_sharpes.csv's deduped raw-Sharpe rows
+    by `evaluation_sample` instead of pooling them into one search
+    distribution.
+
+    Per AnnaLisa's refinement (2026-10-xx): the validation-only cadence
+    comparison (no_refit/monthly/quarterly) is internally comparable --
+    same code, same clean sample, same objective -- in a way that
+    pooling it with the ad-hoc pre-calendar-split comparisons or the
+    final-test HRP/ERC check may not be. Each family's own variance is
+    one additional, more narrowly-scoped candidate input for
+    dsr_sensitivity_grid, alongside the pooled scenarios from
+    trial_sharpe_variance_sensitivity.
+    """
+    import csv
+
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    families: dict[str, list[float]] = {}
+    for row in rows:
+        if row["metric_type"].strip() != "sharpe" or row["redundant_with"].strip():
+            continue
+        families.setdefault(row["evaluation_sample"].strip(), []).append(float(row["value"]))
+    return {name: np.array(values) for name, values in families.items()}
+
+
+def dsr_sensitivity_grid(
+    observed_sharpe: float,
+    returns: np.ndarray,
+    variance_scenarios: dict[str, float],
+    k_scenarios: dict[str, int],
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> dict[str, dict[str, float]]:
+    """Disclosed DSR sensitivity grid over (cross-trial Sharpe variance,
+    effective number of trials K) assumption pairs, rather than one
+    "primary" DSR under a single assumed pair.
+
+    Lopez de Prado & Porcu (2026) frame search-adjusted significance as
+    depending jointly on "the effective number of trials...and the
+    cross-sectional dispersion of Sharpe ratios across trials" -- not on
+    the literal trial count alone -- and their practitioner decision
+    guide recommends, when candidates are dependent or adaptively
+    selected, that effective K and dispersion be chosen to "reflect the
+    actual research process" rather than assumed. Since this project's
+    historical daily return paths no longer exist (see
+    trial_sharpe_variance_sensitivity's docstring), that dependence
+    structure cannot be estimated directly, which is exactly the
+    situation their guidance anticipates: report a disclosed range over
+    defensible assumptions rather than one point estimate.
+
+    Every cell uses the unchanged deflated_sharpe_ratio (same formula,
+    same skew/kurtosis adjustment) -- only `n_trials` and
+    `sharpe_variance_across_trials` vary across cells. No cell is
+    "primary"; the interpretive question is whether the conclusion is
+    stable across the grid, which callers assess from the returned
+    range, not from any single cell.
+    """
+    return {
+        v_name: {
+            k_name: deflated_sharpe_ratio(
+                observed_sharpe=observed_sharpe,
+                returns=returns,
+                n_trials=k,
+                sharpe_variance_across_trials=variance,
+                periods_per_year=periods_per_year,
+            )
+            for k_name, k in k_scenarios.items()
+        }
+        for v_name, variance in variance_scenarios.items()
+    }
+
+
+def build_dsr_sensitivity_scenarios(
+    trial_log_path: str,
+    candidate_sharpes_path: str,
+) -> tuple[dict[str, float], dict[str, int]]:
+    """Assemble the variance and effective-K scenario dicts for
+    dsr_sensitivity_grid from the repo's trial_log.csv and
+    trial_candidate_sharpes.csv.
+
+    Variance scenarios: the three pooled inclusion choices from
+    trial_sharpe_variance_sensitivity, one scenario per coherent
+    evaluation-sample family (trial_candidate_sharpes_by_family), and
+    the conventional unit-variance value -- included as one disclosed
+    point among several, not as the primary input.
+
+    K scenarios: the literal count of counts_toward_dsr_trials=True rows
+    (n_trials_from_log); the deduped candidate count (treating every
+    surviving distinct candidate as its own trial, the most literal
+    reading of "trial" at the candidate rather than comparison level);
+    and the number of coherent search families (treating each family of
+    mutually-dependent candidates as contributing one effective trial,
+    the opposite extreme). True effective K likely lies between the
+    latter two; no single value here is asserted as correct.
+    """
+    pooled = trial_sharpe_variance_sensitivity(candidate_sharpes_path)
+    families = trial_candidate_sharpes_by_family(candidate_sharpes_path)
+
+    variance_scenarios = {
+        f"pooled_{name}": stats["variance"]
+        for name, stats in pooled.items()
+        if np.isfinite(stats["variance"])
+    }
+    for family_name, values in families.items():
+        if len(values) > 1:
+            variance_scenarios[f"family_{family_name}"] = float(np.var(values, ddof=1))
+    variance_scenarios["conventional_unit_variance"] = 1.0
+
+    deduped_n = len(load_trial_candidate_sharpes(candidate_sharpes_path, metric_type="sharpe", dedupe=True))
+    k_scenarios = {
+        "literal_logged_trials": n_trials_from_log(trial_log_path),
+        "deduped_candidate_count": deduped_n,
+        "coherent_search_families": len(families),
+    }
+    return variance_scenarios, k_scenarios
+
+
 def deflated_sharpe_ratio(
     observed_sharpe: float,
     returns: np.ndarray,

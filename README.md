@@ -191,24 +191,36 @@ the ERC-only walk-forward harness — does not depend on either package.
   allocator/density -- both are off by default and evaluated only via
   `scripts/run_hrp_and_nu_robustness.py`, which compares each against
   ERC's own regime/reliability effect on the real universe's final test.
-- **The DSR's `sharpe_variance_across_trials` stays on its documented
-  unit-variance placeholder** (see `deflated_sharpe_ratio`'s docstring),
-  not an empirical estimate, even though the underlying trial Sharpes
-  are now recovered. `outputs/trial_candidate_sharpes.csv` records the
-  per-candidate Sharpe value behind every `outputs/trial_log.csv`
+- **The DSR is reported as a disclosed sensitivity grid, not one
+  "primary" figure**, over both of its uncertain inputs jointly: the
+  cross-trial Sharpe variance and the effective number of trials K.
+  `outputs/trial_candidate_sharpes.csv` records the per-candidate
+  Sharpe value behind every `outputs/trial_log.csv`
   `counts_toward_dsr_trials=True` row, with full source provenance --
   no daily return path survives for any of them, only rounded summary
   Sharpes (several only ever existed in a commit message, never a
-  saved CSV). `evaluation.trial_sharpe_variance_sensitivity` computes
-  the sample variance under a few individually-defensible inclusion
-  choices (deduped vs including redundant/no-op rows; all trials vs
-  excluding the ad-hoc pre-calendar-split comparisons); every scenario
-  draws from only 5-13 candidates, several of which are sequential
-  refinements of the same underlying run rather than independent
-  strategy attempts. That's too small/non-independent a sample to
-  trust over the placeholder, so it's reported by `run_real_data.py`
-  as a disclosed sensitivity check alongside the primary DSR figure,
-  not swapped in as a replacement.
+  saved CSV). `evaluation.build_dsr_sensitivity_scenarios` turns that
+  recovered set into several variance scenarios (pooled under a few
+  individually-defensible inclusion choices, and per coherent
+  evaluation-sample family -- e.g. the validation-only refit-cadence
+  comparison is internally comparable in a way that pooling it with
+  the final-test HRP/ERC check may not be) and several K scenarios
+  (literal logged trial count, deduped candidate count, coherent
+  search-family count), per Lopez de Prado & Porcu (2026)'s framing
+  that search-adjusted significance depends jointly on effective trial
+  count and cross-trial dispersion -- neither fixed while the other is
+  estimated. The conventional unit-variance value is included as one
+  scenario among several, not the default: neither Bailey & Lopez de
+  Prado (2014) nor the 2026 paper grounds it as a preferred fallback
+  when the actual cross-trial variance is uncertain.
+  `evaluation.dsr_sensitivity_grid` computes DSR (via the unchanged
+  `deflated_sharpe_ratio`) across every scenario pair;
+  `run_real_data.py` reports the resulting range per config and saves
+  the full grid to `outputs/real_data_dsr_sensitivity_grid.csv`. On the
+  archived reference run this range is wide and config-independent
+  (driven almost entirely by the variance assumption, not by which
+  portfolio) -- that instability is the reportable finding, not any
+  single cell.
 
 ## Next steps
 
