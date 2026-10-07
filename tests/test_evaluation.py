@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -18,6 +19,8 @@ from evaluation import (
     trial_candidate_sharpes_by_family,
     dsr_sensitivity_grid,
     build_dsr_sensitivity_scenarios,
+    deflated_sharpe_ratio_ls,
+    _gaussian_order_statistic_moments,
 )
 
 
@@ -563,17 +566,23 @@ def test_dsr_sensitivity_grid_covers_every_scenario_pair():
     assert set(grid.keys()) == {"low", "high"}
     for row in grid.values():
         assert set(row.keys()) == {"k3", "k7"}
+        for cell in row.values():
+            assert set(cell.keys()) == {"dsr_l", "dsr_ls"}
 
-    # Each cell must equal calling deflated_sharpe_ratio directly with
-    # that exact (variance, K) pair -- the grid is a thin wrapper, not a
-    # different computation.
+    # Each cell's dsr_l/dsr_ls must equal calling deflated_sharpe_ratio /
+    # deflated_sharpe_ratio_ls directly with that exact (variance, K)
+    # pair -- the grid is a thin wrapper, not a different computation.
     for v_name, variance in variance_scenarios.items():
         for k_name, k in k_scenarios.items():
-            expected = deflated_sharpe_ratio(
+            expected_l = deflated_sharpe_ratio(
                 observed_sharpe=sr, returns=returns, n_trials=k,
                 sharpe_variance_across_trials=variance,
             )
-            assert np.isclose(grid[v_name][k_name], expected)
+            expected_ls = deflated_sharpe_ratio_ls(
+                observed_sharpe=sr, n_trials=k, sharpe_variance_across_trials=variance,
+            )
+            assert np.isclose(grid[v_name][k_name]["dsr_l"], expected_l)
+            assert np.isclose(grid[v_name][k_name]["dsr_ls"], expected_ls)
 
 
 def test_dsr_sensitivity_grid_is_unstable_between_unit_and_empirical_variance():
@@ -607,3 +616,73 @@ def test_build_dsr_sensitivity_scenarios_on_real_project_files():
         "literal_logged_trials", "deduped_candidate_count", "coherent_search_families",
     }
     assert all(isinstance(k, int) and k > 0 for k in k_scenarios.values())
+
+
+def test_gaussian_order_statistic_moments_k1_is_standard_normal():
+    """The max of a single standard Normal draw is just that draw."""
+    mu, sigma = _gaussian_order_statistic_moments(1)
+    assert np.isclose(mu, 0.0, atol=1e-8)
+    assert np.isclose(sigma, 1.0, atol=1e-6)
+
+
+def test_gaussian_order_statistic_moments_k2_matches_known_closed_form():
+    """E[max of 2 iid N(0,1)] = 1/sqrt(pi), a textbook closed form."""
+    mu, sigma = _gaussian_order_statistic_moments(2)
+    assert np.isclose(mu, 1.0 / np.sqrt(np.pi), atol=1e-6)
+    assert 0.0 < sigma < 1.0
+
+
+def test_gaussian_order_statistic_moments_location_increases_with_k():
+    """E[max] of more iid draws is larger -- more chances for an extreme
+    value -- while its dispersion shrinks (the EVT concentration effect
+    Lopez de Prado & Porcu's sigma_K captures)."""
+    mu_small, sigma_small = _gaussian_order_statistic_moments(3)
+    mu_large, sigma_large = _gaussian_order_statistic_moments(50)
+    assert mu_large > mu_small
+    assert sigma_large < sigma_small
+
+
+def test_deflated_sharpe_ratio_ls_requires_no_return_series():
+    """Unlike DSR-L, DSR-LS needs only the scalar observed Sharpe plus
+    (n_trials, sharpe_variance_across_trials) -- mu_K/sigma_K are
+    properties of the search distribution, not the observed series."""
+    dsr_ls = deflated_sharpe_ratio_ls(
+        observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.03,
+    )
+    assert 0.0 <= dsr_ls <= 1.0
+
+
+def test_deflated_sharpe_ratio_ls_matches_direct_formula():
+    """DSR-LS = Phi[(observed_sharpe - mu_K) / sigma_K], applied directly
+    to the exact Gaussian order-statistic moments."""
+    from scipy.stats import norm as scipy_norm
+
+    n_trials, variance, observed = 5, 0.04, 0.9
+    mu_unit, sigma_unit = _gaussian_order_statistic_moments(n_trials)
+    scale = np.sqrt(variance)
+    expected = scipy_norm.cdf((observed - scale * mu_unit) / (scale * sigma_unit))
+
+    actual = deflated_sharpe_ratio_ls(
+        observed_sharpe=observed, n_trials=n_trials, sharpe_variance_across_trials=variance,
+    )
+    assert np.isclose(actual, expected)
+
+
+def test_deflated_sharpe_ratio_ls_rejects_nonpositive_variance():
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls(observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.0)
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls(observed_sharpe=0.8, n_trials=0, sharpe_variance_across_trials=0.03)
+
+
+def test_deflated_sharpe_ratio_ls_is_also_unstable_between_unit_and_empirical_variance():
+    """Same instability finding as DSR-L, under the independently
+    specified DSR-LS formula -- confirms the sensitivity conclusion is
+    not an artifact of DSR-L's particular s_c denominator."""
+    dsr_ls_small_variance = deflated_sharpe_ratio_ls(
+        observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.03,
+    )
+    dsr_ls_unit_variance = deflated_sharpe_ratio_ls(
+        observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=1.0,
+    )
+    assert dsr_ls_small_variance > dsr_ls_unit_variance + 0.2

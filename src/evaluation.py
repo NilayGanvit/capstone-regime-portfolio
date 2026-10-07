@@ -650,7 +650,7 @@ def trial_candidate_sharpes_by_family(path: str) -> dict[str, np.ndarray]:
     by `evaluation_sample` instead of pooling them into one search
     distribution.
 
-    Per AnnaLisa's refinement (2026-10-xx): the validation-only cadence
+    The validation-only cadence
     comparison (no_refit/monthly/quarterly) is internally comparable --
     same code, same clean sample, same objective -- in a way that
     pooling it with the ad-hoc pre-calendar-split comparisons or the
@@ -677,10 +677,14 @@ def dsr_sensitivity_grid(
     variance_scenarios: dict[str, float],
     k_scenarios: dict[str, int],
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, dict[str, float]]]:
     """Disclosed DSR sensitivity grid over (cross-trial Sharpe variance,
     effective number of trials K) assumption pairs, rather than one
-    "primary" DSR under a single assumed pair.
+    "primary" DSR under a single assumed pair -- reporting DSR-L and
+    DSR-LS side by side in every cell (AnnaLisa, 2026-10-xx: "for each
+    existing variance x K sensitivity cell, the additional code would
+    need to calculate both mu_K and sigma_K, then return DSR-L and
+    DSR-LS side-by-side").
 
     Lopez de Prado & Porcu (2026) frame search-adjusted significance as
     depending jointly on "the effective number of trials...and the
@@ -695,22 +699,34 @@ def dsr_sensitivity_grid(
     situation their guidance anticipates: report a disclosed range over
     defensible assumptions rather than one point estimate.
 
-    Every cell uses the unchanged deflated_sharpe_ratio (same formula,
-    same skew/kurtosis adjustment) -- only `n_trials` and
-    `sharpe_variance_across_trials` vary across cells. No cell is
-    "primary"; the interpretive question is whether the conclusion is
-    stable across the grid, which callers assess from the returned
-    range, not from any single cell.
+    Each cell is {"dsr_l": ..., "dsr_ls": ...}: DSR-L via the unchanged
+    deflated_sharpe_ratio (same skew/kurtosis-adjusted s_c denominator,
+    using the observed `returns`); DSR-LS via deflated_sharpe_ratio_ls
+    (the search distribution's own (mu_K, sigma_K), no skew/kurtosis
+    adjustment -- see that function's docstring for why the two scales
+    are different quantities). Only `n_trials` and
+    `sharpe_variance_across_trials` vary across cells for each
+    representation; no cell is "primary" -- the interpretive question is
+    whether the conclusion is stable across the grid, which callers
+    assess from the returned range, not from any single cell.
     """
+    observed_sharpe_value = float(observed_sharpe)
     return {
         v_name: {
-            k_name: deflated_sharpe_ratio(
-                observed_sharpe=observed_sharpe,
-                returns=returns,
-                n_trials=k,
-                sharpe_variance_across_trials=variance,
-                periods_per_year=periods_per_year,
-            )
+            k_name: {
+                "dsr_l": deflated_sharpe_ratio(
+                    observed_sharpe=observed_sharpe_value,
+                    returns=returns,
+                    n_trials=k,
+                    sharpe_variance_across_trials=variance,
+                    periods_per_year=periods_per_year,
+                ),
+                "dsr_ls": deflated_sharpe_ratio_ls(
+                    observed_sharpe=observed_sharpe_value,
+                    n_trials=k,
+                    sharpe_variance_across_trials=variance,
+                ),
+            }
             for k_name, k in k_scenarios.items()
         }
         for v_name, variance in variance_scenarios.items()
@@ -815,3 +831,77 @@ def deflated_sharpe_ratio(
     if denominator <= 0 or not np.isfinite(denominator):
         return float("nan")
     return float(norm.cdf(numerator / denominator))
+
+
+def _gaussian_order_statistic_moments(n_trials: int) -> tuple[float, float]:
+    """Exact first two moments (mu_K, sigma_K) of the maximum of
+    `n_trials` iid standard Normal variables, per Lopez de Prado & Porcu
+    (2026) equations 23-24:
+
+        mu_K = E0[M_K] = integral x * K * phi(x) * Phi(x)^(K-1) dx
+        sigma_K^2 = E0[M_K^2] - mu_K^2,
+            E0[M_K^2] = integral x^2 * K * phi(x) * Phi(x)^(K-1) dx
+
+    Computed by numerical integration rather than Bailey (2014)'s
+    closed-form Gumbel-asymptotic approximation (what
+    deflated_sharpe_ratio's DSR-L already uses, left unchanged) -- the
+    exact integral is cheap and accurate at the small K values this
+    project's trial counts imply, and is what DSR-LS is specified
+    against (see deflated_sharpe_ratio_ls).
+    """
+    from scipy.integrate import quad
+
+    def mean_integrand(x):
+        return x * n_trials * norm.pdf(x) * norm.cdf(x) ** (n_trials - 1)
+
+    def second_moment_integrand(x):
+        return x ** 2 * n_trials * norm.pdf(x) * norm.cdf(x) ** (n_trials - 1)
+
+    mu_k, _ = quad(mean_integrand, -20.0, 20.0)
+    second_moment, _ = quad(second_moment_integrand, -20.0, 20.0)
+    sigma_k = float(np.sqrt(max(second_moment - mu_k ** 2, 0.0)))
+    return float(mu_k), sigma_k
+
+
+def deflated_sharpe_ratio_ls(
+    observed_sharpe: float,
+    n_trials: int,
+    sharpe_variance_across_trials: float,
+) -> float:
+    """DSR-LS (Gaussian reference), Lopez de Prado & Porcu (2026): the
+    location-and-scale companion to deflated_sharpe_ratio's DSR-L.
+
+    DSR-L uses the search-adjusted location mu_K together with the
+    *selected strategy's own* skew/kurtosis/serial-dependence-adjusted
+    PSR sampling SE (s_c, deflated_sharpe_ratio's `denominator`). DSR-LS
+    instead uses the search-adjusted location AND scale (mu_K, sigma_K)
+    -- both are a property of the search distribution itself, not of
+    the observed return series -- so no skew/kurtosis adjustment is
+    applied here; per AnnaLisa's review (2026-10-xx), folding
+    serial-dependence into s_c is a separate, s_c-only extension of
+    DSR-L, not something DSR-LS's denominator uses.
+
+    Unlike deflated_sharpe_ratio, this needs no daily return series --
+    only the single observed (annualized) Sharpe plus the same
+    (n_trials, sharpe_variance_across_trials) sensitivity inputs,
+    since mu_K/sigma_K are computed directly in annualized-Sharpe units
+    (the units `sharpe_variance_across_trials` -- the variance of raw
+    trial Sharpe levels in outputs/trial_candidate_sharpes.csv -- is
+    already expressed in).
+
+    DSR-LS = Phi[(observed_sharpe - mu_K) / sigma_K].
+    """
+    if n_trials < 1:
+        raise ValueError("n_trials must be at least 1.")
+    if sharpe_variance_across_trials is None or sharpe_variance_across_trials <= 0 \
+            or not np.isfinite(sharpe_variance_across_trials):
+        raise ValueError("sharpe_variance_across_trials must be finite and positive.")
+
+    mu_k_unit, sigma_k_unit = _gaussian_order_statistic_moments(n_trials)
+    scale = np.sqrt(sharpe_variance_across_trials)
+    mu_k = scale * mu_k_unit
+    sigma_k = scale * sigma_k_unit
+
+    if sigma_k <= 0 or not np.isfinite(sigma_k):
+        return float("nan")
+    return float(norm.cdf((observed_sharpe - mu_k) / sigma_k))

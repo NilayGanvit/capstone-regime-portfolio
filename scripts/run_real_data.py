@@ -62,6 +62,19 @@ the default -- neither paper grounds it as a preferred fallback when
 the actual cross-trial variance is uncertain, only as what the
 original Bailey (2014) formula requires an input for.
 
+Every grid cell reports two representations side by side (AnnaLisa,
+2026-10-xx, against Lopez de Prado & Porcu 2026 pp.7-8): DSR-L
+(evaluation.deflated_sharpe_ratio, unchanged -- search-adjusted
+location mu_K plus the observed series' own skew/kurtosis-adjusted
+sampling SE s_c) and DSR-LS (evaluation.deflated_sharpe_ratio_ls --
+search-adjusted location AND scale (mu_K, sigma_K), the exact Gaussian
+order-statistic moments of the search maximum via numerical
+integration, no skew/kurtosis adjustment since sigma_K is a search-
+distribution property, not a property of the observed series). DSR-EO
+(the complete finite-sample search distribution) is not implemented --
+it requires the full search distribution, which the surviving
+candidate summary Sharpes cannot reconstruct.
+
 Usage:
     python scripts/run_real_data.py
 """
@@ -431,6 +444,13 @@ def main() -> None:
         for name, value in k_scenarios.items():
             print(f"  {name}: {value}")
 
+        print("Each cell reports DSR-L (deflated_sharpe_ratio: search-adjusted location mu_K "
+              "plus the observed series' own skew/kurtosis-adjusted sampling SE s_c) and DSR-LS "
+              "(deflated_sharpe_ratio_ls: search-adjusted location AND scale (mu_K, sigma_K), a "
+              "Gaussian-reference property of the search distribution itself, no skew/kurtosis "
+              "adjustment) side by side -- two different representations of the same "
+              "search-adjusted null, not two competing estimates of one quantity.")
+
         grid_rows = []
         for config in result.portfolio_returns:
             net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
@@ -440,26 +460,30 @@ def main() -> None:
                 observed_sharpe=sr, returns=net_final,
                 variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
             )
-            all_dsr = [v for row in grid.values() for v in row.values()]
-            print(f"{config}: net-of-cost Sharpe={sr:.3f}, DSR range=[{min(all_dsr):.3f}, {max(all_dsr):.3f}] "
+            dsr_l_vals = [cell["dsr_l"] for row in grid.values() for cell in row.values()]
+            dsr_ls_vals = [cell["dsr_ls"] for row in grid.values() for cell in row.values()]
+            print(f"{config}: net-of-cost Sharpe={sr:.3f}, "
+                  f"DSR-L range=[{min(dsr_l_vals):.3f}, {max(dsr_l_vals):.3f}], "
+                  f"DSR-LS range=[{min(dsr_ls_vals):.3f}, {max(dsr_ls_vals):.3f}] "
                   f"across {len(variance_scenarios)}x{len(k_scenarios)} assumption grid")
             for v_name, row in grid.items():
-                for k_name, dsr in row.items():
+                for k_name, cell in row.items():
                     grid_rows.append({
                         "config": config, "sharpe": round(sr, 4),
                         "variance_scenario": v_name, "variance_value": round(variance_scenarios[v_name], 4),
                         "k_scenario": k_name, "k_value": k_scenarios[k_name],
-                        "dsr": round(dsr, 4),
+                        "dsr_l": round(cell["dsr_l"], 4),
+                        "dsr_ls": round(cell["dsr_ls"], 4),
                     })
         pd.DataFrame(grid_rows).to_csv(out_dir / "real_data_dsr_sensitivity_grid.csv", index=False)
         print(f"Saved full grid to {out_dir / 'real_data_dsr_sensitivity_grid.csv'}")
-        print("Compare each config's printed range above against the variance/K scenarios: on "
+        print("Compare each config's printed ranges above against the variance/K scenarios: on "
               "the archived reference run, every recovered empirical-variance scenario (pooled "
-              "or per-family) lands far above the conventional unit-variance scenario regardless "
-              "of which K is used -- a wide, config-independent swing driven almost entirely by "
-              "the variance assumption. If that pattern holds here too, the DSR conclusion is "
-              "NOT stable across this grid, which is itself the reportable finding, not any "
-              "single cell.")
+              "or per-family) lands far above the conventional unit-variance scenario for BOTH "
+              "DSR-L and DSR-LS, regardless of which K is used -- a wide, config-independent "
+              "swing driven almost entirely by the variance assumption. If that pattern holds "
+              "here too, the DSR conclusion is NOT stable across this grid, which is itself the "
+              "reportable finding, not any single cell.")
 
     print("\n--- Reliability path pi_t (full walk-forward history) ---")
     pi = np.array(result.pi_history)

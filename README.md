@@ -213,14 +213,24 @@ the ERC-only walk-forward harness — does not depend on either package.
   scenario among several, not the default: neither Bailey & Lopez de
   Prado (2014) nor the 2026 paper grounds it as a preferred fallback
   when the actual cross-trial variance is uncertain.
-  `evaluation.dsr_sensitivity_grid` computes DSR (via the unchanged
-  `deflated_sharpe_ratio`) across every scenario pair;
-  `run_real_data.py` reports the resulting range per config and saves
-  the full grid to `outputs/real_data_dsr_sensitivity_grid.csv`. On the
-  archived reference run this range is wide and config-independent
-  (driven almost entirely by the variance assumption, not by which
-  portfolio) -- that instability is the reportable finding, not any
-  single cell.
+  `evaluation.dsr_sensitivity_grid` reports **two representations side
+  by side in every cell**: DSR-L (`deflated_sharpe_ratio`, unchanged --
+  search-adjusted location mu_K plus the observed series' own
+  skew/kurtosis-adjusted sampling SE) and DSR-LS
+  (`deflated_sharpe_ratio_ls` -- search-adjusted location *and* scale
+  (mu_K, sigma_K), the exact Gaussian order-statistic moments of the
+  search maximum via numerical integration of Lopez de Prado & Porcu
+  (2026)'s equations 23-24, no skew/kurtosis adjustment since sigma_K
+  is a property of the search distribution, not the observed series).
+  DSR-EO (the complete finite-sample search distribution) is not
+  implemented -- the surviving candidate summary Sharpes cannot
+  reconstruct it. `run_real_data.py` reports the resulting DSR-L/DSR-LS
+  ranges per config and saves the full grid to
+  `outputs/real_data_dsr_sensitivity_grid.csv`. On the archived
+  reference run both ranges are wide and config-independent (driven
+  almost entirely by the variance assumption, not by which portfolio,
+  and not by which of the two representations is used) -- that
+  instability is the reportable finding, not any single cell.
 
 ## Next steps
 
