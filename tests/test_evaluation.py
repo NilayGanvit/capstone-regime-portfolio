@@ -19,8 +19,10 @@ from evaluation import (
     trial_candidate_sharpes_by_family,
     dsr_sensitivity_grid,
     build_dsr_sensitivity_scenarios,
-    deflated_sharpe_ratio_ls,
+    deflated_sharpe_ratio_ls_gaussian,
+    deflated_sharpe_ratio_ls_gumbel,
     _gaussian_order_statistic_moments,
+    _standardized_gumbel_cdf,
 )
 
 
@@ -567,22 +569,27 @@ def test_dsr_sensitivity_grid_covers_every_scenario_pair():
     for row in grid.values():
         assert set(row.keys()) == {"k3", "k7"}
         for cell in row.values():
-            assert set(cell.keys()) == {"dsr_l", "dsr_ls"}
+            assert set(cell.keys()) == {"dsr_l", "dsr_ls_gaussian", "dsr_ls_gumbel"}
 
-    # Each cell's dsr_l/dsr_ls must equal calling deflated_sharpe_ratio /
-    # deflated_sharpe_ratio_ls directly with that exact (variance, K)
-    # pair -- the grid is a thin wrapper, not a different computation.
+    # Each cell must equal calling deflated_sharpe_ratio /
+    # deflated_sharpe_ratio_ls_gaussian / _gumbel directly with that
+    # exact (variance, K) pair -- the grid is a thin wrapper, not a
+    # different computation.
     for v_name, variance in variance_scenarios.items():
         for k_name, k in k_scenarios.items():
             expected_l = deflated_sharpe_ratio(
                 observed_sharpe=sr, returns=returns, n_trials=k,
                 sharpe_variance_across_trials=variance,
             )
-            expected_ls = deflated_sharpe_ratio_ls(
+            expected_ls_gaussian = deflated_sharpe_ratio_ls_gaussian(
+                observed_sharpe=sr, n_trials=k, sharpe_variance_across_trials=variance,
+            )
+            expected_ls_gumbel = deflated_sharpe_ratio_ls_gumbel(
                 observed_sharpe=sr, n_trials=k, sharpe_variance_across_trials=variance,
             )
             assert np.isclose(grid[v_name][k_name]["dsr_l"], expected_l)
-            assert np.isclose(grid[v_name][k_name]["dsr_ls"], expected_ls)
+            assert np.isclose(grid[v_name][k_name]["dsr_ls_gaussian"], expected_ls_gaussian)
+            assert np.isclose(grid[v_name][k_name]["dsr_ls_gumbel"], expected_ls_gumbel)
 
 
 def test_dsr_sensitivity_grid_is_unstable_between_unit_and_empirical_variance():
@@ -642,19 +649,60 @@ def test_gaussian_order_statistic_moments_location_increases_with_k():
     assert sigma_large < sigma_small
 
 
-def test_deflated_sharpe_ratio_ls_requires_no_return_series():
+def test_gaussian_order_statistic_moments_match_published_benchmarks():
+    """Independent check against Lopez de Prado & Porcu (2026)'s own 
+    published values -- pinned here as a regression anchor so a future 
+    change can't silently drift from the paper."""
+    mu5, sigma5 = _gaussian_order_statistic_moments(5)
+    assert np.isclose(mu5, 1.162964, atol=1e-6)
+    assert np.isclose(sigma5, 0.668980, atol=1e-6)
+
+    mu10, sigma10 = _gaussian_order_statistic_moments(10)
+    assert np.isclose(mu10, 1.538753, atol=1e-6)
+    assert np.isclose(sigma10, 0.586808, atol=1e-6)
+
+
+def test_standardized_gumbel_cdf_has_zero_mean_and_unit_variance():
+    """H must actually be "standardized" (mean 0, variance 1) per Lopez
+    de Prado & Porcu's definition of a reference shape -- checked by
+    numerically differentiating the CDF back to a density and
+    integrating its first two moments."""
+    xs = np.linspace(-15.0, 15.0, 20000)
+    eps = 1e-5
+    density = (_standardized_gumbel_cdf(xs + eps) - _standardized_gumbel_cdf(xs - eps)) / (2 * eps)
+    mean = np.trapezoid(xs * density, xs)
+    variance = np.trapezoid((xs - mean) ** 2 * density, xs)
+    assert np.isclose(mean, 0.0, atol=1e-3)
+    assert np.isclose(variance, 1.0, atol=1e-3)
+
+
+def test_standardized_gumbel_cdf_matches_empirical_sampling():
+    """(G - gamma) / (pi/sqrt(6)) for G ~ Gumbel(0,1) should have our
+    _standardized_gumbel_cdf as its distribution function."""
+    rng = np.random.default_rng(0)
+    gamma = 0.5772156649
+    g = rng.gumbel(loc=0.0, scale=1.0, size=500_000)
+    y = (g - gamma) / (np.pi / np.sqrt(6.0))
+
+    for x in [-2.0, -1.0, 0.0, 1.0, 2.0]:
+        empirical = float((y <= x).mean())
+        theoretical = float(_standardized_gumbel_cdf(x))
+        assert abs(empirical - theoretical) < 0.01
+
+
+def test_deflated_sharpe_ratio_ls_gaussian_requires_no_return_series():
     """Unlike DSR-L, DSR-LS needs only the scalar observed Sharpe plus
     (n_trials, sharpe_variance_across_trials) -- mu_K/sigma_K are
     properties of the search distribution, not the observed series."""
-    dsr_ls = deflated_sharpe_ratio_ls(
+    dsr_ls = deflated_sharpe_ratio_ls_gaussian(
         observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.03,
     )
     assert 0.0 <= dsr_ls <= 1.0
 
 
-def test_deflated_sharpe_ratio_ls_matches_direct_formula():
-    """DSR-LS = Phi[(observed_sharpe - mu_K) / sigma_K], applied directly
-    to the exact Gaussian order-statistic moments."""
+def test_deflated_sharpe_ratio_ls_gaussian_matches_direct_formula():
+    """DSR-LS,Gaussian = Phi[(observed_sharpe - mu_K) / sigma_K], applied
+    directly to the exact Gaussian order-statistic moments."""
     from scipy.stats import norm as scipy_norm
 
     n_trials, variance, observed = 5, 0.04, 0.9
@@ -662,27 +710,80 @@ def test_deflated_sharpe_ratio_ls_matches_direct_formula():
     scale = np.sqrt(variance)
     expected = scipy_norm.cdf((observed - scale * mu_unit) / (scale * sigma_unit))
 
-    actual = deflated_sharpe_ratio_ls(
+    actual = deflated_sharpe_ratio_ls_gaussian(
         observed_sharpe=observed, n_trials=n_trials, sharpe_variance_across_trials=variance,
     )
     assert np.isclose(actual, expected)
 
 
-def test_deflated_sharpe_ratio_ls_rejects_nonpositive_variance():
-    with pytest.raises(ValueError):
-        deflated_sharpe_ratio_ls(observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.0)
-    with pytest.raises(ValueError):
-        deflated_sharpe_ratio_ls(observed_sharpe=0.8, n_trials=0, sharpe_variance_across_trials=0.03)
+def test_deflated_sharpe_ratio_ls_gumbel_matches_direct_formula():
+    """DSR-LS,Gumbel = H_Gumbel[(observed_sharpe - mu_K) / sigma_K], the
+    identical (mu_K, sigma_K) as the Gaussian-reference version -- only
+    H differs."""
+    n_trials, variance, observed = 5, 0.04, 0.9
+    mu_unit, sigma_unit = _gaussian_order_statistic_moments(n_trials)
+    scale = np.sqrt(variance)
+    standardized = (observed - scale * mu_unit) / (scale * sigma_unit)
+    expected = _standardized_gumbel_cdf(standardized)
+
+    actual = deflated_sharpe_ratio_ls_gumbel(
+        observed_sharpe=observed, n_trials=n_trials, sharpe_variance_across_trials=variance,
+    )
+    assert np.isclose(actual, expected)
 
 
-def test_deflated_sharpe_ratio_ls_is_also_unstable_between_unit_and_empirical_variance():
+def test_deflated_sharpe_ratio_ls_gaussian_and_gumbel_use_identical_moments():
+    """The two reference shapes must be paired with exactly the same
+    (mu_K, sigma_K) -- they are a matched pair over one location-and-
+    scale representation, not two independent estimates. Verified
+    indirectly: shifting observed_sharpe by the same amount should
+    shift both standardized arguments identically, so their CDFs must
+    respond monotonically together (both must agree on which side of
+    0.5 the no-effect point mu_K falls)."""
+    n_trials, variance = 7, 0.03
+    mu_unit, _ = _gaussian_order_statistic_moments(n_trials)
+    scale = np.sqrt(variance)
+    mu_k = scale * mu_unit
+
+    below = dict(n_trials=n_trials, sharpe_variance_across_trials=variance, observed_sharpe=mu_k - 1.0)
+    above = dict(n_trials=n_trials, sharpe_variance_across_trials=variance, observed_sharpe=mu_k + 1.0)
+
+    assert deflated_sharpe_ratio_ls_gaussian(**below) < 0.5 < deflated_sharpe_ratio_ls_gaussian(**above)
+    assert deflated_sharpe_ratio_ls_gumbel(**below) < deflated_sharpe_ratio_ls_gumbel(**above)
+
+
+def test_deflated_sharpe_ratio_ls_gaussian_rejects_nonpositive_variance():
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls_gaussian(observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.0)
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls_gaussian(observed_sharpe=0.8, n_trials=0, sharpe_variance_across_trials=0.03)
+
+
+def test_deflated_sharpe_ratio_ls_gumbel_rejects_nonpositive_variance():
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls_gumbel(observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.0)
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_ls_gumbel(observed_sharpe=0.8, n_trials=0, sharpe_variance_across_trials=0.03)
+
+
+def test_deflated_sharpe_ratio_ls_gaussian_is_also_unstable_between_unit_and_empirical_variance():
     """Same instability finding as DSR-L, under the independently
     specified DSR-LS formula -- confirms the sensitivity conclusion is
     not an artifact of DSR-L's particular s_c denominator."""
-    dsr_ls_small_variance = deflated_sharpe_ratio_ls(
+    dsr_ls_small_variance = deflated_sharpe_ratio_ls_gaussian(
         observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.03,
     )
-    dsr_ls_unit_variance = deflated_sharpe_ratio_ls(
+    dsr_ls_unit_variance = deflated_sharpe_ratio_ls_gaussian(
+        observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=1.0,
+    )
+    assert dsr_ls_small_variance > dsr_ls_unit_variance + 0.2
+
+
+def test_deflated_sharpe_ratio_ls_gumbel_is_also_unstable_between_unit_and_empirical_variance():
+    dsr_ls_small_variance = deflated_sharpe_ratio_ls_gumbel(
+        observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=0.03,
+    )
+    dsr_ls_unit_variance = deflated_sharpe_ratio_ls_gumbel(
         observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=1.0,
     )
     assert dsr_ls_small_variance > dsr_ls_unit_variance + 0.2

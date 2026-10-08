@@ -699,16 +699,20 @@ def dsr_sensitivity_grid(
     situation their guidance anticipates: report a disclosed range over
     defensible assumptions rather than one point estimate.
 
-    Each cell is {"dsr_l": ..., "dsr_ls": ...}: DSR-L via the unchanged
-    deflated_sharpe_ratio (same skew/kurtosis-adjusted s_c denominator,
-    using the observed `returns`); DSR-LS via deflated_sharpe_ratio_ls
-    (the search distribution's own (mu_K, sigma_K), no skew/kurtosis
-    adjustment -- see that function's docstring for why the two scales
-    are different quantities). Only `n_trials` and
-    `sharpe_variance_across_trials` vary across cells for each
-    representation; no cell is "primary" -- the interpretive question is
-    whether the conclusion is stable across the grid, which callers
-    assess from the returned range, not from any single cell.
+    Each cell is {"dsr_l": ..., "dsr_ls_gaussian": ..., "dsr_ls_gumbel":
+    ...}: DSR-L via the unchanged deflated_sharpe_ratio (the *selected
+    strategy's own* skew/kurtosis-adjusted s_c denominator, using the
+    observed `returns`); DSR-LS,Gaussian and DSR-LS,Gumbel via
+    deflated_sharpe_ratio_ls_gaussian/_gumbel (the search distribution's
+    own (mu_K, sigma_K), identical between the two, no skew/kurtosis
+    adjustment -- see those functions' docstrings for why s_c and
+    sigma_K are different quantities, and why Gaussian and Gumbel are
+    two disclosed reference-shape choices rather than one "the" DSR-LS).
+    Only `n_trials` and `sharpe_variance_across_trials` vary across
+    cells for each representation; no cell is "primary" -- the
+    interpretive question is whether the conclusion is stable across
+    the grid, which callers assess from the returned range, not from
+    any single cell.
     """
     observed_sharpe_value = float(observed_sharpe)
     return {
@@ -721,7 +725,12 @@ def dsr_sensitivity_grid(
                     sharpe_variance_across_trials=variance,
                     periods_per_year=periods_per_year,
                 ),
-                "dsr_ls": deflated_sharpe_ratio_ls(
+                "dsr_ls_gaussian": deflated_sharpe_ratio_ls_gaussian(
+                    observed_sharpe=observed_sharpe_value,
+                    n_trials=k,
+                    sharpe_variance_across_trials=variance,
+                ),
+                "dsr_ls_gumbel": deflated_sharpe_ratio_ls_gumbel(
                     observed_sharpe=observed_sharpe_value,
                     n_trials=k,
                     sharpe_variance_across_trials=variance,
@@ -785,11 +794,23 @@ def deflated_sharpe_ratio(
     sharpe_variance_across_trials: float | None = None,
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> float:
-    """Deflated Sharpe Ratio per Bailey & Lopez de Prado (2014): the
-    probability that the *true* Sharpe ratio exceeds zero, after
-    correcting for (a) the non-normality of the return series (skew,
-    kurtosis) and (b) selection bias from having evaluated `n_trials`
-    candidate specifications and reporting the best one.
+    """DSR-L: the original Bailey & Lopez de Prado (2014) Deflated Sharpe
+    Ratio, in Lopez de Prado & Porcu (2026)'s terms the location-based
+    *probability-valued, search-adjusted significance statistic*
+    DSR_L = PSR(observed_sharpe; SR* = mu_K, T) -- the Probabilistic
+    Sharpe Ratio evaluated against the search-adjusted benchmark mu_K
+    (the expected maximum Sharpe an `n_trials`-candidate search could
+    produce under no genuine skill) instead of PSR's usual zero
+    benchmark, additionally correcting for the non-normality (skew,
+    kurtosis) of the observed return series.
+
+    This is NOT the (Bayesian) posterior probability that the strategy's
+    true Sharpe ratio exceeds zero -- that reading requires additional
+    assumptions about the prevalence and distribution of genuine skill
+    that this statistic does not make (2026 paper, "Search-adjusted
+    significance should not be presented as a posterior probability of
+    skill"). Equivalently, DSR_L = 1 - (upper-tail p-value): a
+    level-alpha rejection of the no-skill null is DSR_L >= 1 - alpha.
 
     `sharpe_variance_across_trials` is the variance of the Sharpe ratios
     obtained across the n_trials candidates evaluated during development
@@ -798,7 +819,18 @@ def deflated_sharpe_ratio(
     assumption of independent, identically distributed candidate Sharpes
     is used as a documented approximation -- flagged clearly in the
     return so this substitution is never silently mistaken for a
-    from-the-log estimate.
+    from-the-log estimate. See evaluation.dsr_sensitivity_grid and
+    build_dsr_sensitivity_scenarios for why this project does not treat
+    any single value (including this placeholder) as primary.
+
+    DSR-L's scale is `s_c`, the *selected strategy's own* skew/kurtosis-
+    adjusted PSR sampling standard error -- a different quantity from
+    DSR-LS's sigma_K, the dispersion of the search maximum itself (see
+    deflated_sharpe_ratio_ls_gaussian/_gumbel). The 2026 paper's
+    serial-dependence extension to s_c is not implemented here -- the
+    archived 5-bps daily net returns show modest lag-1 autocorrelation
+    (~-0.06 to +0.05), so it is treated as unexercised robustness work,
+    not a response to a known problem with this project's data.
     """
     r = np.asarray(returns)
     n_obs = len(r)
@@ -835,8 +867,10 @@ def deflated_sharpe_ratio(
 
 def _gaussian_order_statistic_moments(n_trials: int) -> tuple[float, float]:
     """Exact first two moments (mu_K, sigma_K) of the maximum of
-    `n_trials` iid standard Normal variables, per Lopez de Prado & Porcu
-    (2026) equations 23-24:
+    `n_trials` iid standard Normal variables under an **iid Gaussian
+    candidate-search model** -- the model maintained throughout this
+    project's DSR-LS calculations -- per Lopez de Prado & Porcu (2026)
+    equations 23-24:
 
         mu_K = E0[M_K] = integral x * K * phi(x) * Phi(x)^(K-1) dx
         sigma_K^2 = E0[M_K^2] - mu_K^2,
@@ -846,8 +880,18 @@ def _gaussian_order_statistic_moments(n_trials: int) -> tuple[float, float]:
     closed-form Gumbel-asymptotic approximation (what
     deflated_sharpe_ratio's DSR-L already uses, left unchanged) -- the
     exact integral is cheap and accurate at the small K values this
-    project's trial counts imply, and is what DSR-LS is specified
-    against (see deflated_sharpe_ratio_ls).
+    project's trial counts imply. Verified against the paper's own
+    published benchmarks: K=5 gives mu_K=1.162964, sigma_K=0.668980;
+    K=10 gives mu_K=1.538753, sigma_K=0.586808 (AnnaLisa, 2026-10-xx),
+    both reproduced to six decimals.
+
+    mu_K, sigma_K are the *location and scale*, not the *reference
+    shape* H used to turn them into a probability -- see
+    deflated_sharpe_ratio_ls_gaussian (H = standard Normal CDF) and
+    deflated_sharpe_ratio_ls_gumbel (H = standardized Gumbel CDF, the
+    EVT-consistent reference under this same iid Gaussian search
+    model). Both reference shapes are paired with the identical
+    (mu_K, sigma_K) computed here.
     """
     from scipy.integrate import quad
 
@@ -863,33 +907,29 @@ def _gaussian_order_statistic_moments(n_trials: int) -> tuple[float, float]:
     return float(mu_k), sigma_k
 
 
-def deflated_sharpe_ratio_ls(
-    observed_sharpe: float,
-    n_trials: int,
-    sharpe_variance_across_trials: float,
-) -> float:
-    """DSR-LS (Gaussian reference), Lopez de Prado & Porcu (2026): the
-    location-and-scale companion to deflated_sharpe_ratio's DSR-L.
+# Standardized (mean 0, unit variance) Gumbel distribution, per Lopez de
+# Prado & Porcu (2026) equations 29/54-56: if G ~ Gumbel(0,1) with CDF
+# exp(-exp(-x)), then Y = (G - gamma) / (pi/sqrt(6)) has mean 0 and unit
+# variance, since E[G] = gamma (Euler-Mascheroni) and Var(G) = pi^2/6.
+_EULER_MASCHERONI = 0.5772156649
+_STANDARD_GUMBEL_SCALE = np.pi / np.sqrt(6.0)
 
-    DSR-L uses the search-adjusted location mu_K together with the
-    *selected strategy's own* skew/kurtosis/serial-dependence-adjusted
-    PSR sampling SE (s_c, deflated_sharpe_ratio's `denominator`). DSR-LS
-    instead uses the search-adjusted location AND scale (mu_K, sigma_K)
-    -- both are a property of the search distribution itself, not of
-    the observed return series -- so no skew/kurtosis adjustment is
-    applied here; per AnnaLisa's review (2026-10-xx), folding
-    serial-dependence into s_c is a separate, s_c-only extension of
-    DSR-L, not something DSR-LS's denominator uses.
 
-    Unlike deflated_sharpe_ratio, this needs no daily return series --
-    only the single observed (annualized) Sharpe plus the same
-    (n_trials, sharpe_variance_across_trials) sensitivity inputs,
-    since mu_K/sigma_K are computed directly in annualized-Sharpe units
-    (the units `sharpe_variance_across_trials` -- the variance of raw
-    trial Sharpe levels in outputs/trial_candidate_sharpes.csv -- is
-    already expressed in).
+def _standardized_gumbel_cdf(x: np.ndarray | float) -> np.ndarray | float:
+    """CDF of the standardized Gumbel distribution (mean 0, variance 1):
+    H(x) = exp(-exp(-(x * pi/sqrt(6) + gamma))). The EVT-consistent
+    reference shape under an iid Gaussian candidate-search model (the
+    Gaussian order-statistic maximum lies in the Gumbel domain of
+    attraction) -- see deflated_sharpe_ratio_ls_gumbel.
+    """
+    return np.exp(-np.exp(-(np.asarray(x) * _STANDARD_GUMBEL_SCALE + _EULER_MASCHERONI)))
 
-    DSR-LS = Phi[(observed_sharpe - mu_K) / sigma_K].
+
+def _dsr_ls_moments(n_trials: int, sharpe_variance_across_trials: float) -> tuple[float, float]:
+    """Shared input validation and (mu_K, sigma_K) scaling for
+    deflated_sharpe_ratio_ls_gaussian/_gumbel -- both pair the identical
+    search-adjusted location and scale with a different reference shape
+    H, so the two functions must never compute mu_K/sigma_K separately.
     """
     if n_trials < 1:
         raise ValueError("n_trials must be at least 1.")
@@ -899,9 +939,75 @@ def deflated_sharpe_ratio_ls(
 
     mu_k_unit, sigma_k_unit = _gaussian_order_statistic_moments(n_trials)
     scale = np.sqrt(sharpe_variance_across_trials)
-    mu_k = scale * mu_k_unit
-    sigma_k = scale * sigma_k_unit
+    return scale * mu_k_unit, scale * sigma_k_unit
 
+
+def deflated_sharpe_ratio_ls_gaussian(
+    observed_sharpe: float,
+    n_trials: int,
+    sharpe_variance_across_trials: float,
+) -> float:
+    """DSR-LS under an iid Gaussian candidate-search model with a
+    **Gaussian reference shape** (H = Phi), Lopez de Prado & Porcu
+    (2026): the location-and-scale companion to deflated_sharpe_ratio's
+    DSR-L. Gaussian is "an allowed operational choice" preserving
+    continuity with conventional standardized Sharpe-ratio inference,
+    but is NOT the EVT-consistent reference for this search model --
+    see deflated_sharpe_ratio_ls_gumbel for that (AnnaLisa, 2026-10-xx).
+
+    DSR-L uses the search-adjusted location mu_K together with the
+    *selected strategy's own* skew/kurtosis-adjusted PSR sampling SE
+    (s_c, deflated_sharpe_ratio's `denominator`; the 2026 paper's
+    serial-dependence extension to s_c is not implemented, see that
+    function's docstring). DSR-LS instead uses the search-adjusted
+    location AND scale (mu_K, sigma_K) -- both a property of the search
+    distribution itself, not of the observed return series -- so no
+    skew/kurtosis/serial-dependence adjustment is applied here at all;
+    sigma_K is a different quantity from s_c, not folded into it.
+
+    Unlike deflated_sharpe_ratio, this needs no daily return series --
+    only the single observed (annualized) Sharpe plus the same
+    (n_trials, sharpe_variance_across_trials) sensitivity inputs,
+    since mu_K/sigma_K are computed directly in annualized-Sharpe units
+    (the units `sharpe_variance_across_trials` -- the variance of raw
+    trial Sharpe levels in outputs/trial_candidate_sharpes.csv -- is
+    already expressed in).
+
+    DSR-LS,Gaussian = Phi[(observed_sharpe - mu_K) / sigma_K].
+    """
+    mu_k, sigma_k = _dsr_ls_moments(n_trials, sharpe_variance_across_trials)
     if sigma_k <= 0 or not np.isfinite(sigma_k):
         return float("nan")
     return float(norm.cdf((observed_sharpe - mu_k) / sigma_k))
+
+
+def deflated_sharpe_ratio_ls_gumbel(
+    observed_sharpe: float,
+    n_trials: int,
+    sharpe_variance_across_trials: float,
+) -> float:
+    """DSR-LS under an iid Gaussian candidate-search model with the
+    **EVT-consistent standardized-Gumbel reference shape**, Lopez de
+    Prado & Porcu (2026): since the maximum of iid Gaussian candidates
+    lies in the Gumbel domain of attraction, pairing (mu_K, sigma_K)
+    with the standardized Gumbel limit -- rather than a Gaussian
+    reference -- restores asymptotic calibration as K grows (the paper
+    reports the Gaussian-reference rule's limiting rejection probability
+    at 6.583% against a nominal 5%, vs. the Gumbel reference's
+    asymptotically-exact calibration). At finite K neither reference
+    uniformly dominates (e.g. the paper's K=5 and K=10 rejection-rate
+    comparison, where the ranking flips), so this is reported as a
+    disclosed alternative to deflated_sharpe_ratio_ls_gaussian, not a
+    more-correct replacement for small K.
+
+    Identical (mu_K, sigma_K) as deflated_sharpe_ratio_ls_gaussian --
+    only the reference shape H differs; the two functions are a matched
+    pair over the same location-and-scale representation, not competing
+    estimates of different quantities.
+
+    DSR-LS,Gumbel = H_Gumbel[(observed_sharpe - mu_K) / sigma_K].
+    """
+    mu_k, sigma_k = _dsr_ls_moments(n_trials, sharpe_variance_across_trials)
+    if sigma_k <= 0 or not np.isfinite(sigma_k):
+        return float("nan")
+    return float(_standardized_gumbel_cdf((observed_sharpe - mu_k) / sigma_k))

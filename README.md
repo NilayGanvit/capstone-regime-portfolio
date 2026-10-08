@@ -213,24 +213,53 @@ the ERC-only walk-forward harness — does not depend on either package.
   scenario among several, not the default: neither Bailey & Lopez de
   Prado (2014) nor the 2026 paper grounds it as a preferred fallback
   when the actual cross-trial variance is uncertain.
-  `evaluation.dsr_sensitivity_grid` reports **two representations side
-  by side in every cell**: DSR-L (`deflated_sharpe_ratio`, unchanged --
-  search-adjusted location mu_K plus the observed series' own
-  skew/kurtosis-adjusted sampling SE) and DSR-LS
-  (`deflated_sharpe_ratio_ls` -- search-adjusted location *and* scale
-  (mu_K, sigma_K), the exact Gaussian order-statistic moments of the
-  search maximum via numerical integration of Lopez de Prado & Porcu
-  (2026)'s equations 23-24, no skew/kurtosis adjustment since sigma_K
-  is a property of the search distribution, not the observed series).
-  DSR-EO (the complete finite-sample search distribution) is not
-  implemented -- the surviving candidate summary Sharpes cannot
-  reconstruct it. `run_real_data.py` reports the resulting DSR-L/DSR-LS
-  ranges per config and saves the full grid to
+  `evaluation.dsr_sensitivity_grid` reports **three representations
+  side by side in every cell**, each explicitly labeled with the
+  assumptions it carries rather than described generically as "the"
+  2014 or 2026 DSR:
+  - **DSR-L** (`deflated_sharpe_ratio`, unchanged) -- the original
+    Bailey & Lopez de Prado (2014) formulation: a probability-valued,
+    search-adjusted significance statistic (PSR evaluated against the
+    search-adjusted benchmark mu_K instead of zero), *not* a Bayesian
+    posterior probability that the true Sharpe exceeds zero. Its scale
+    is `s_c`, the *observed series' own* skew/kurtosis-adjusted PSR
+    sampling SE; the 2026 paper's serial-dependence extension to `s_c`
+    is not implemented (the archived 5-bps daily returns show modest
+    lag-1 autocorrelation, ~-0.06 to +0.05, so this is unexercised
+    robustness work, not a response to a known problem).
+  - **DSR-LS, Gaussian reference** (`deflated_sharpe_ratio_ls_gaussian`)
+    -- under an explicit iid Gaussian candidate-search model, pairs the
+    search-adjusted location *and* scale (mu_K, sigma_K) -- the exact
+    Gaussian order-statistic moments via numerical integration of Lopez
+    de Prado & Porcu (2026)'s equations 23-24, verified to six decimals
+    against the paper's own published K=5/K=10 benchmarks -- with a
+    Gaussian reference shape. No skew/kurtosis adjustment: sigma_K is a
+    property of the search distribution, not of the observed series.
+  - **DSR-LS, standardized-Gumbel reference**
+    (`deflated_sharpe_ratio_ls_gumbel`) -- the *identical* (mu_K, sigma_K)
+    paired with the EVT-consistent standardized-Gumbel reference instead
+    (equations 29/54-56): since the Gaussian order-statistic maximum
+    lies in the Gumbel domain of attraction, this reference is
+    asymptotically calibrated as K grows, unlike the Gaussian reference
+    (which the paper shows has a 6.583% limiting rejection rate against
+    a nominal 5%). Neither reference uniformly dominates at the small K
+    this project's trial counts imply, so both are reported as disclosed
+    alternatives, not one replacing the other.
+
+  DSR-EO (the complete finite-sample search distribution) and a
+  standardized-Fréchet reference (the EVT-consistent choice under a
+  heavier-tailed Student-t search model, not the Gaussian one assumed
+  here) are both out of scope -- the surviving candidate summary
+  Sharpes cannot reconstruct the former, and there's no defensible
+  heavy-tailed search model motivating the latter. `run_real_data.py`
+  reports the resulting DSR-L/DSR-LS-Gaussian/DSR-LS-Gumbel ranges per
+  config and saves the full grid to
   `outputs/real_data_dsr_sensitivity_grid.csv`. On the archived
-  reference run both ranges are wide and config-independent (driven
-  almost entirely by the variance assumption, not by which portfolio,
-  and not by which of the two representations is used) -- that
-  instability is the reportable finding, not any single cell.
+  reference run all three ranges are wide and config-independent
+  (driven almost entirely by the variance assumption, not by which
+  portfolio, and not by which representation or reference shape is
+  used) -- that instability is the reportable finding, not any single
+  cell.
 
 ## Next steps
 

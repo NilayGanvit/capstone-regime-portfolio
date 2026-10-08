@@ -62,18 +62,30 @@ the default -- neither paper grounds it as a preferred fallback when
 the actual cross-trial variance is uncertain, only as what the
 original Bailey (2014) formula requires an input for.
 
-Every grid cell reports two representations side by side (AnnaLisa,
-2026-10-xx, against Lopez de Prado & Porcu 2026 pp.7-8): DSR-L
-(evaluation.deflated_sharpe_ratio, unchanged -- search-adjusted
-location mu_K plus the observed series' own skew/kurtosis-adjusted
-sampling SE s_c) and DSR-LS (evaluation.deflated_sharpe_ratio_ls --
-search-adjusted location AND scale (mu_K, sigma_K), the exact Gaussian
-order-statistic moments of the search maximum via numerical
-integration, no skew/kurtosis adjustment since sigma_K is a search-
-distribution property, not a property of the observed series). DSR-EO
-(the complete finite-sample search distribution) is not implemented --
-it requires the full search distribution, which the surviving
-candidate summary Sharpes cannot reconstruct.
+Every grid cell reports three representations side by side (against
+Lopez de Prado & Porcu 2026 pp.7-8, confirmed by AnnaLisa and Silvio,
+2026-10-xx): DSR-L (evaluation.deflated_sharpe_ratio, unchanged -- the
+original Bailey & Lopez de Prado 2014 formulation, search-adjusted
+location mu_K plus the *observed series' own* skew/kurtosis-adjusted
+sampling SE s_c -- a probability-valued search-adjusted significance
+statistic, not a posterior probability the true Sharpe exceeds zero);
+DSR-LS,Gaussian (evaluation.deflated_sharpe_ratio_ls_gaussian --
+search-adjusted location AND scale (mu_K, sigma_K) under an iid
+Gaussian candidate-search model, exact order-statistic moments via
+numerical integration verified to six decimals against the paper's own
+published K=5/K=10 benchmarks, Gaussian reference shape, no
+skew/kurtosis adjustment since sigma_K is a search-distribution
+property, not s_c); and DSR-LS,Gumbel
+(evaluation.deflated_sharpe_ratio_ls_gumbel -- identical (mu_K, sigma_K),
+but the EVT-consistent standardized-Gumbel reference shape for this
+same Gaussian search model, asymptotically calibrated as K grows unlike
+the Gaussian reference's 6.583% limiting rejection rate at a nominal
+5%). DSR-EO (the complete finite-sample search distribution) and a
+standardized-Fréchet reference (the EVT-consistent choice under a
+heavier-tailed Student-t search model, not assumed here) are both out
+of scope -- the surviving candidate summary Sharpes cannot reconstruct
+the former, and there is no defensible heavy-tailed search model
+motivating the latter.
 
 Usage:
     python scripts/run_real_data.py
@@ -444,12 +456,18 @@ def main() -> None:
         for name, value in k_scenarios.items():
             print(f"  {name}: {value}")
 
-        print("Each cell reports DSR-L (deflated_sharpe_ratio: search-adjusted location mu_K "
-              "plus the observed series' own skew/kurtosis-adjusted sampling SE s_c) and DSR-LS "
-              "(deflated_sharpe_ratio_ls: search-adjusted location AND scale (mu_K, sigma_K), a "
-              "Gaussian-reference property of the search distribution itself, no skew/kurtosis "
-              "adjustment) side by side -- two different representations of the same "
-              "search-adjusted null, not two competing estimates of one quantity.")
+        print("Each cell reports three representations side by side: DSR-L (deflated_sharpe_ratio, "
+              "the original Bailey & Lopez de Prado 2014 formulation -- search-adjusted location "
+              "mu_K plus the *observed series' own* skew/kurtosis-adjusted sampling SE s_c); "
+              "DSR-LS,Gaussian (deflated_sharpe_ratio_ls_gaussian -- search-adjusted location AND "
+              "scale (mu_K, sigma_K) under an iid Gaussian candidate-search model, Gaussian "
+              "reference shape, no skew/kurtosis adjustment since sigma_K is a search-distribution "
+              "property, not s_c); and DSR-LS,Gumbel (deflated_sharpe_ratio_ls_gumbel -- identical "
+              "(mu_K, sigma_K), but the EVT-consistent standardized-Gumbel reference shape for this "
+              "same Gaussian search model, per Lopez de Prado & Porcu 2026's calibration result "
+              "that the Gaussian reference's limiting rejection rate is 6.583% against a nominal "
+              "5%, while the Gumbel reference is asymptotically exact). All three are different "
+              "representations of the same search-adjusted null, not competing estimates.")
 
         grid_rows = []
         for config in result.portfolio_returns:
@@ -461,10 +479,12 @@ def main() -> None:
                 variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
             )
             dsr_l_vals = [cell["dsr_l"] for row in grid.values() for cell in row.values()]
-            dsr_ls_vals = [cell["dsr_ls"] for row in grid.values() for cell in row.values()]
+            dsr_ls_gaussian_vals = [cell["dsr_ls_gaussian"] for row in grid.values() for cell in row.values()]
+            dsr_ls_gumbel_vals = [cell["dsr_ls_gumbel"] for row in grid.values() for cell in row.values()]
             print(f"{config}: net-of-cost Sharpe={sr:.3f}, "
                   f"DSR-L range=[{min(dsr_l_vals):.3f}, {max(dsr_l_vals):.3f}], "
-                  f"DSR-LS range=[{min(dsr_ls_vals):.3f}, {max(dsr_ls_vals):.3f}] "
+                  f"DSR-LS,Gaussian range=[{min(dsr_ls_gaussian_vals):.3f}, {max(dsr_ls_gaussian_vals):.3f}], "
+                  f"DSR-LS,Gumbel range=[{min(dsr_ls_gumbel_vals):.3f}, {max(dsr_ls_gumbel_vals):.3f}] "
                   f"across {len(variance_scenarios)}x{len(k_scenarios)} assumption grid")
             for v_name, row in grid.items():
                 for k_name, cell in row.items():
@@ -473,15 +493,17 @@ def main() -> None:
                         "variance_scenario": v_name, "variance_value": round(variance_scenarios[v_name], 4),
                         "k_scenario": k_name, "k_value": k_scenarios[k_name],
                         "dsr_l": round(cell["dsr_l"], 4),
-                        "dsr_ls": round(cell["dsr_ls"], 4),
+                        "dsr_ls_gaussian": round(cell["dsr_ls_gaussian"], 4),
+                        "dsr_ls_gumbel": round(cell["dsr_ls_gumbel"], 4),
                     })
         pd.DataFrame(grid_rows).to_csv(out_dir / "real_data_dsr_sensitivity_grid.csv", index=False)
         print(f"Saved full grid to {out_dir / 'real_data_dsr_sensitivity_grid.csv'}")
         print("Compare each config's printed ranges above against the variance/K scenarios: on "
               "the archived reference run, every recovered empirical-variance scenario (pooled "
-              "or per-family) lands far above the conventional unit-variance scenario for BOTH "
-              "DSR-L and DSR-LS, regardless of which K is used -- a wide, config-independent "
-              "swing driven almost entirely by the variance assumption. If that pattern holds "
+              "or per-family) lands far above the conventional unit-variance scenario for ALL "
+              "THREE representations, regardless of which K or reference shape is used -- a wide, "
+              "config-independent swing driven almost entirely by the variance assumption, not by "
+              "the choice between DSR-L/DSR-LS or between Gaussian/Gumbel. If that pattern holds "
               "here too, the DSR conclusion is NOT stable across this grid, which is itself the "
               "reportable finding, not any single cell.")
 
