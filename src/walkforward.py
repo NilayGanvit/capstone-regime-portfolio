@@ -104,6 +104,7 @@ class WalkForwardResult:
     execution_history: dict  # config_name -> list of {date, turnover}, one entry per rebalance, dated on the day the trade actually executes (== decision date if no open-price data, decision date + 1 trading day otherwise) -- the reference series for transaction-cost accounting
     refit_dates: list       # dates on which a scheduled refit occurred
     lstm_retrain_dates: list  # dates on which the LSTM allocators were retrained (empty unless lstm_retrain_every_n_rebalances is set)
+    lstm_budgets_history: dict  # "baseline"/"regime" -> list of {date, budgets}, the raw RiskBudgetLSTM softmax output *before* the shared risk-budgeting layer converts it to weights (empty unless lstm_models is set) -- the quantity Table 4's floor-concentration stats are computed on, not the post-risk-budgeting portfolio weight
 
 
 def ewma_blend(new: np.ndarray, prev: np.ndarray, lam: float) -> np.ndarray:
@@ -310,6 +311,7 @@ def run_walk_forward(
     pi_history, log_l0_history, log_l1_history = [], [], []
     refit_dates = []
     lstm_retrain_dates = []
+    lstm_budgets_history = {"baseline": [], "regime": []}
     rebalance_count = 0
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
@@ -506,6 +508,8 @@ def run_walk_forward(
                 )
                 budgets_baseline = predict_budgets(lstm_models["baseline"], baseline_window)
                 budgets_regime = predict_budgets(lstm_models["regime"], regime_window)
+                lstm_budgets_history["baseline"].append({"date": date, "budgets": budgets_baseline})
+                lstm_budgets_history["regime"].append({"date": date, "budgets": budgets_regime})
                 # Same baseline_cov/regime_cov ERC's diagnostic already
                 # regularized above -- the risk-budgeting layer shared
                 # between ERC and the LSTM allocator (M2's architecture).
@@ -578,4 +582,5 @@ def run_walk_forward(
         execution_history=execution_history,
         refit_dates=refit_dates,
         lstm_retrain_dates=lstm_retrain_dates,
+        lstm_budgets_history=lstm_budgets_history,
     )

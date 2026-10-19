@@ -120,6 +120,7 @@ LSTM_SEQ_LEN = 60
 LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
+LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
 
 
 def train_lstm_variants(returns: pd.DataFrame, initial_window: int) -> tuple[dict, pd.DataFrame]:
@@ -148,7 +149,9 @@ def train_lstm_variants(returns: pd.DataFrame, initial_window: int) -> tuple[dic
         )
         print(f"LSTM {variant_name}: {len(windows)} training windows, "
               f"{pd.Timestamp(dates[0]).date()} to {pd.Timestamp(dates[-1]).date()}")
-        model = RiskBudgetLSTM(n_features=windows[0].shape[1], n_assets=n_assets)
+        model = RiskBudgetLSTM(
+            n_features=windows[0].shape[1], n_assets=n_assets, budget_floor=LSTM_BUDGET_FLOOR,
+        )
         t0 = time.time()
         result = train_lstm_allocator(
             model, windows, covs, fwd, n_epochs=LSTM_N_EPOCHS, turnover_penalty=0.1, shrinkage=0.10,
