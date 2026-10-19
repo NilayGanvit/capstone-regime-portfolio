@@ -22,8 +22,23 @@ from scipy.stats import norm, skew, kurtosis
 TRADING_DAYS_PER_YEAR = 252
 
 
-def sharpe_ratio(returns: np.ndarray, periods_per_year: int = TRADING_DAYS_PER_YEAR) -> float:
-    r = np.asarray(returns)
+def sharpe_ratio(
+    returns: np.ndarray,
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+    risk_free: np.ndarray | float = 0.0,
+) -> float:
+    """Annualized Sharpe ratio on excess returns: mean(returns - risk_free)
+    divided by the EXCESS series' own sample SD, times sqrt(periods_per_year).
+    `risk_free` is a per-period simple rate (see data.load_risk_free_daily),
+    broadcastable against `returns` -- a scalar (the default, 0.0,
+    preserves every existing caller's zero-risk-free-rate behavior) or an
+    array of the same length. Subtracting before taking the SD, rather
+    than subtracting only the mean, matters when risk_free varies over
+    the sample (it did here, from under 0% to over 5%): it's the excess
+    series itself that should be judged for risk, not the raw returns
+    minus a flat offset.
+    """
+    r = np.asarray(returns) - np.asarray(risk_free)
     if r.std(ddof=1) == 0:
         return 0.0
     return float(r.mean() / r.std(ddof=1) * np.sqrt(periods_per_year))

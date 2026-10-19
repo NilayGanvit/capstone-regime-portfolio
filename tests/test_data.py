@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
 
-from data import make_synthetic_universe, UNIVERSE, PriceDataset, M2Calendar, initial_window_length, stage_labels
+from data import make_synthetic_universe, UNIVERSE, PriceDataset, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily
 
 
 def test_synthetic_universe_shape_and_columns():
@@ -111,3 +111,32 @@ def test_stage_labels_boundary_dates_are_inclusive_to_the_earlier_stage():
     )
     labels = stage_labels(pd.to_datetime(["2014-12-31", "2018-12-31", "2026-08-31"]), calendar)
     assert list(labels) == ["initial_training", "validation", "final_test"]
+
+
+def test_load_risk_free_daily_converts_annual_pct_to_daily_simple_rate(tmp_path):
+    irx_dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])
+    pd.DataFrame({"AnnualRatePct": [5.0, 5.0, 5.04]}, index=irx_dates).rename_axis("Date").to_csv(tmp_path / "IRX.csv")
+    rf = load_risk_free_daily(str(tmp_path), irx_dates)
+    assert rf == pytest.approx([0.05 / 252, 0.05 / 252, 0.0504 / 252])
+
+
+def test_load_risk_free_daily_forward_fills_dates_the_rate_series_skips(tmp_path):
+    # The T-bill series doesn't trade on an identical calendar to the ETF
+    # universe -- a date missing from IRX.csv should carry the prior
+    # observation forward, not raise or silently drop it.
+    irx_dates = pd.to_datetime(["2020-01-02", "2020-01-06"])
+    pd.DataFrame({"AnnualRatePct": [5.0, 5.04]}, index=irx_dates).rename_axis("Date").to_csv(tmp_path / "IRX.csv")
+    query_dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])  # 01-03 absent from IRX.csv
+    rf = load_risk_free_daily(str(tmp_path), query_dates)
+    assert rf == pytest.approx([0.05 / 252, 0.05 / 252, 0.0504 / 252])
+
+
+def test_load_risk_free_daily_raises_if_dates_precede_the_rate_series():
+    import tempfile
+
+    irx_dates = pd.to_datetime(["2020-01-06", "2020-01-07"])
+    with tempfile.TemporaryDirectory() as d:
+        pd.DataFrame({"AnnualRatePct": [5.0, 5.0]}, index=irx_dates).rename_axis("Date").to_csv(Path(d) / "IRX.csv")
+        query_dates = pd.to_datetime(["2020-01-02", "2020-01-06"])  # 01-02 precedes the series
+        with pytest.raises(ValueError, match="doesn't cover the start"):
+            load_risk_free_daily(d, query_dates)

@@ -100,7 +100,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels  # noqa: E402
+from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily  # noqa: E402
 from features import build_feature_matrix  # noqa: E402
 from regime import GaussianHMM  # noqa: E402
 from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator  # noqa: E402
@@ -207,12 +207,15 @@ def transaction_log_dataframe(execution_history: list, calendar: M2Calendar, sta
     return pd.DataFrame(rows)
 
 
-def cost_sensitivity_table(result, stages: pd.Series) -> pd.DataFrame:
+def cost_sensitivity_table(result, stages: pd.Series, risk_free_daily: np.ndarray) -> pd.DataFrame:
     """Sharpe/CAGR at each of FEE_BPS_SENSITIVITY, final-test only, for
     every config -- derived from the same walk-forward run via
     net_of_cost_returns rather than three separate re-runs, since weights
-    don't depend on the fee rate."""
+    don't depend on the fee rate. Sharpe is on excess returns over
+    `risk_free_daily` (data.load_risk_free_daily), aligned to result.dates
+    and sliced the same way as `net`."""
     final_test_mask = (stages == "final_test").to_numpy()
+    rf_final = risk_free_daily[final_test_mask]
     rows = []
     for config in result.portfolio_returns:
         gross = result.portfolio_returns[config]
@@ -221,17 +224,20 @@ def cost_sensitivity_table(result, stages: pd.Series) -> pd.DataFrame:
             rows.append({
                 "config": config,
                 "fee_bps": fee_bps,
-                "sharpe_net": round(sharpe_ratio(net[final_test_mask]), 3),
+                "sharpe_net": round(sharpe_ratio(net[final_test_mask], risk_free=rf_final), 3),
                 "cagr_net": round(cagr(net[final_test_mask]), 4),
             })
     return pd.DataFrame(rows).set_index(["config", "fee_bps"])
 
 
-def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray) -> pd.DataFrame:
+def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray, risk_free_daily: np.ndarray) -> pd.DataFrame:
     """Metrics for the subset of walk-forward days selected by `mask`
     (boolean array aligned with result.dates), using each config's own
     drifted (pre-trade) weights as the turnover reference -- identical to
-    average_turnover's definition elsewhere in the harness."""
+    average_turnover's definition elsewhere in the harness. Sharpe is on
+    excess returns over `risk_free_daily` (data.load_risk_free_daily),
+    aligned to result.dates and sliced the same way as `r`."""
+    rf = risk_free_daily[mask]
     rows = []
     for config, r in result.portfolio_returns.items():
         w = result.weights[config]
@@ -242,7 +248,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
         rows.append({
             "config": config,
             "n_days": int(mask.sum()),
-            "sharpe": round(sharpe_ratio(r[mask]), 3),
+            "sharpe": round(sharpe_ratio(r[mask], risk_free=rf), 3),
             "cagr": round(cagr(r[mask]), 4),
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
@@ -302,6 +308,7 @@ def main() -> None:
           f"{len(result.weights)} configs\n")
 
     stages = stage_labels(pd.DatetimeIndex(result.dates), calendar)
+    risk_free_daily = load_risk_free_daily(str(data_dir), pd.DatetimeIndex(result.dates))
     stage_counts = stages.value_counts()
     for stage in ["validation", "final_test", "post_final_test"]:
         if stage not in stage_counts:
@@ -318,7 +325,7 @@ def main() -> None:
             print("(none)\n")
             continue
         mask = (stages == stage).to_numpy()
-        summary = summarize(result, returns, initial_window, mask)
+        summary = summarize(result, returns, initial_window, mask, risk_free_daily)
         print(summary.to_string())
         if stage == "final_test":
             summary.to_csv(out_dir / "real_data_summary.csv")
@@ -428,7 +435,7 @@ def main() -> None:
 
     if final_test_mask.any():
         print("\n--- Transaction costs: 5/10/25 bps sensitivity, exploratory historical walk-forward period ---")
-        cost_table = cost_sensitivity_table(result, stages)
+        cost_table = cost_sensitivity_table(result, stages, risk_free_daily)
         print(cost_table.to_string())
         cost_table.to_csv(out_dir / "real_data_cost_sensitivity.csv")
         print(f"Saved to {out_dir / 'real_data_cost_sensitivity.csv'}")

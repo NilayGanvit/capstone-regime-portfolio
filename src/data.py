@@ -181,6 +181,29 @@ def stage_labels(dates: pd.DatetimeIndex, calendar: M2Calendar = M2Calendar()) -
     return pd.Series([_label(d) for d in dates], index=dates, name="stage")
 
 
+def load_risk_free_daily(directory: str, dates: pd.DatetimeIndex) -> np.ndarray:
+    """Daily simple risk-free rate, aligned to `dates`, for excess-return
+    Sharpe calculations (see data/raw/SOURCE.md's "Risk-free rate" section
+    for provenance). Reads `IRX.csv` (`^IRX`, the CBOE 13-week T-bill rate,
+    an annualized percentage), converts to a daily simple rate via
+    `AnnualRatePct / 100 / periods_per_year` -- the same trading-days-per-
+    year convention as evaluation.sharpe_ratio, and the same simple (not
+    log-compounded) return convention the portfolio returns it's
+    subtracted from already use.
+
+    Reindexed onto `dates` with a forward-fill: the T-bill series doesn't
+    trade on an identical calendar to the ETF universe (1-2 days
+    difference over the full history), so an exact date-for-date match
+    isn't guaranteed.
+    """
+    raw = pd.read_csv(f"{directory}/IRX.csv", index_col=0, parse_dates=True)["AnnualRatePct"]
+    aligned = raw.reindex(raw.index.union(dates)).sort_index().ffill().reindex(dates)
+    if aligned.isna().any():
+        raise ValueError("load_risk_free_daily: IRX.csv doesn't cover the start of `dates` -- "
+                          "forward-fill can't back-fill a rate before the series begins.")
+    return (aligned.to_numpy() / 100.0) / 252
+
+
 def make_synthetic_universe(
     n_days: int = 1500,
     n_assets: int = 10,

@@ -38,6 +38,31 @@ def test_higher_drift_gives_higher_sharpe():
     assert sharpe_ratio(rA) > sharpe_ratio(rB)
 
 
+def test_sharpe_ratio_default_risk_free_matches_explicit_zero():
+    rng = np.random.default_rng(1)
+    r = rng.normal(0.0005, 0.01, 500)
+    assert sharpe_ratio(r) == sharpe_ratio(r, risk_free=0.0)
+
+
+def test_sharpe_ratio_scalar_risk_free_shifts_mean_only_when_std_unaffected():
+    # A CONSTANT risk-free rate doesn't change the excess series' SD, so
+    # subtracting it from a positive-mean series lowers the Sharpe exactly
+    # as subtracting a constant from the mean would.
+    rng = np.random.default_rng(2)
+    r = rng.normal(0.0008, 0.01, 1000)
+    sr_zero_rf = sharpe_ratio(r)
+    sr_with_rf = sharpe_ratio(r, risk_free=0.0002)
+    assert sr_with_rf < sr_zero_rf
+
+
+def test_sharpe_ratio_time_varying_risk_free_matches_manual_subtraction():
+    rng = np.random.default_rng(3)
+    r = rng.normal(0.0006, 0.01, 1000)
+    rf = np.linspace(0.0, 0.0003, 1000)  # a rising rate path, not a flat offset
+    expected = sharpe_ratio(r - rf)
+    assert sharpe_ratio(r, risk_free=rf) == pytest.approx(expected)
+
+
 def test_max_drawdown_is_nonpositive():
     rng = np.random.default_rng(0)
     r = rng.normal(0.0002, 0.01, 500)
