@@ -1,0 +1,121 @@
+==============================================================================
+REAL-DATA RUN -- actual ten-ETF universe, 2007-04-11 onward
+==============================================================================
+
+Loaded 4892 trading days, 2007-04-12 to 2026-09-21, tickers: ['SPY', 'EFA', 'EEM', 'IEF', 'TLT', 'LQD', 'HYG', 'GLD', 'DBC', 'VNQ']
+Open prices available -- rebalances execute at the next session's open per M2, not at the decision-day close.
+Initial training window per M2's calendar: 1946 trading days through 2014-12-31
+
+--- Training LSTM baseline/regime allocators on the initial window only (200 epochs each) ---
+LSTM baseline: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM baseline: trained in 172.2s, loss -0.5639 -> -1.1813
+LSTM regime: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM regime: trained in 162.5s, loss -0.5726 -> -1.2290
+LSTM training runtime: 339.5s
+
+
+Walk-forward runtime: 719.3s over 2946 trading days, 7 configs
+
+--- VALIDATION (2015-01-01 -- 2018-12-31): development and specification-selection period [1006 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline     1006   0.228           0.384  0.0188       -0.0853    0.549   0.220        0.0068             0.1348
+erc_regime       1006   0.254           0.409  0.0203       -0.0934    0.592   0.218        0.0084             0.1236
+erc_blend        1006   0.254           0.409  0.0203       -0.0934    0.592   0.218        0.0084             0.1236
+equal_weight     1006   0.235           0.352  0.0222       -0.1331    0.510   0.167        0.0078             0.1000
+lstm_baseline    1006   0.375           0.496  0.0315       -0.1273    0.690   0.247        0.0115             0.1753
+lstm_regime      1006   0.341           0.480  0.0267       -0.0866    0.649   0.308        0.0148             0.1468
+lstm_blend       1006   0.341           0.480  0.0267       -0.0866    0.649   0.308        0.0148             0.1468
+
+--- EXPLORATORY HISTORICAL WALK-FORWARD (2019-01-01 -- 2026-08-31): non-anticipative evaluation, but not an independent holdout because this period was previously inspected [1926 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline     1926   0.457           0.799  0.0634       -0.2022    1.042   0.313        0.0076             0.1318
+erc_regime       1926   0.468           0.810  0.0643       -0.2122    1.057   0.303        0.0107             0.1242
+erc_blend        1926   0.471           0.814  0.0646       -0.2122    1.062   0.305        0.0107             0.1242
+equal_weight     1926   0.610           0.883  0.0881       -0.1995    1.074   0.442        0.0090             0.1001
+lstm_baseline    1926   0.490           0.772  0.0736       -0.2120    0.941   0.347        0.0129             0.1540
+lstm_regime      1926   0.524           0.811  0.0764       -0.2303    0.993   0.332        0.0161             0.1448
+lstm_blend       1926   0.529           0.816  0.0769       -0.2321    0.999   0.331        0.0162             0.1446
+Saved to /content/capstone-regime-portfolio/outputs/real_data_summary.csv
+
+--- POST-EVALUATION PERIOD (post 2026-08-31): exploratory only, reported separately [14 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline       14  -1.890          -1.270 -0.0790       -0.0152   -2.422  -5.187        0.0065             0.1280
+erc_regime         14  -1.805          -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+erc_blend          14  -1.805          -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+equal_weight       14  -0.978          -0.457 -0.0365       -0.0172   -0.867  -2.119        0.0078             0.1000
+lstm_baseline      14  -1.272          -0.737 -0.0550       -0.0180   -1.768  -3.063        0.0069             0.1487
+lstm_regime        14  -1.753          -1.193 -0.0825       -0.0180   -3.023  -4.595        0.0088             0.1306
+lstm_blend         14  -1.753          -1.193 -0.0825       -0.0180   -3.023  -4.595        0.0088             0.1306
+
+--- Paired stationary-bootstrap inference for RQ1-RQ3 (5-bp net returns) ---
+Saved bootstrap input returns to /content/capstone-regime-portfolio/outputs/real_data_rq_net_returns_5bps.csv
+Saved bootstrap excess returns to /content/capstone-regime-portfolio/outputs/real_data_rq_excess_returns_5bps.csv
+RQ1 ERC: regime - baseline: 0.006, 95% CI [-0.076, 0.085]
+RQ1 LSTM: regime - baseline: 0.029, 95% CI [-0.177, 0.229]
+RQ2 DiD: LSTM regime effect - ERC regime effect: 0.023, 95% CI [-0.207, 0.261]
+RQ3 ERC: blend - regime: 0.003, 95% CI [-0.000, 0.010]
+RQ3 LSTM: blend - regime: 0.005, 95% CI [-0.008, 0.023]
+Stationary bootstrap: 2000 replications per contrast, selection=automatic_contrast_specific, synchronization=within_contrast
+  RQ1 ERC: regime - baseline: expected block length=3.850
+  RQ1 LSTM: regime - baseline: expected block length=1.000
+  RQ2 DiD: LSTM regime effect - ERC regime effect: expected block length=1.000
+  RQ3 ERC: blend - regime: expected block length=55.329
+  RQ3 LSTM: blend - regime: expected block length=34.477
+Saved to /content/capstone-regime-portfolio/outputs/real_data_rq_stationary_bootstrap.csv
+
+--- Transaction costs: 5/10/25 bps sensitivity, exploratory historical walk-forward period ---
+                       sharpe_net  sharpe_zero_rf  cagr_net
+config        fee_bps                                      
+erc_baseline  5.0           0.455           0.797    0.0632
+              10.0          0.454           0.796    0.0631
+              25.0          0.449           0.791    0.0627
+erc_regime    5.0           0.462           0.804    0.0638
+              10.0          0.455           0.798    0.0633
+              25.0          0.437           0.779    0.0617
+erc_blend     5.0           0.465           0.807    0.0641
+              10.0          0.459           0.801    0.0636
+              25.0          0.440           0.782    0.0619
+equal_weight  5.0           0.608           0.881    0.0879
+              10.0          0.607           0.880    0.0878
+              25.0          0.603           0.876    0.0873
+lstm_baseline 5.0           0.482           0.765    0.0728
+              10.0          0.475           0.758    0.0720
+              25.0          0.453           0.735    0.0697
+lstm_regime   5.0           0.512           0.799    0.0751
+              10.0          0.500           0.787    0.0738
+              25.0          0.463           0.751    0.0701
+lstm_blend    5.0           0.517           0.804    0.0756
+              10.0          0.504           0.792    0.0744
+              25.0          0.468           0.755    0.0706
+Saved to /content/capstone-regime-portfolio/outputs/real_data_cost_sensitivity.csv
+
+--- Transaction log (exploratory historical walk-forward period, 5 bps) ---
+Saved per-config detail to /content/capstone-regime-portfolio/outputs/real_data_transaction_log_<config>.csv
+
+--- Deflated Sharpe Ratio, exploratory historical walk-forward period, net of 5 bps costs ---
+n_trials = 7 (from trial_log.csv, performance-driven comparisons only -- see that file's notes column)
+erc_baseline: net-of-cost Sharpe=0.455, DSR=0.005
+erc_regime: net-of-cost Sharpe=0.462, DSR=0.006
+erc_blend: net-of-cost Sharpe=0.465, DSR=0.006
+equal_weight: net-of-cost Sharpe=0.608, DSR=0.017
+lstm_baseline: net-of-cost Sharpe=0.482, DSR=0.007
+lstm_regime: net-of-cost Sharpe=0.512, DSR=0.009
+lstm_blend: net-of-cost Sharpe=0.517, DSR=0.009
+
+--- Reliability path pi_t (full walk-forward history) ---
+mean pi_t: 0.979  min: 0.000  max: 1.000
+
+--- Binding constraints on exploratory historical walk-forward rebalances ---
+erc_baseline: 92 exploratory-period rebalances, 0 with turnover binding, 0 with a weight bound binding
+erc_regime: 92 exploratory-period rebalances, 5 with turnover binding, 1 with a weight bound binding
+erc_blend: 92 exploratory-period rebalances, 5 with turnover binding, 1 with a weight bound binding
+equal_weight: 92 exploratory-period rebalances, 0 with turnover binding, 0 with a weight bound binding
+lstm_baseline: 92 exploratory-period rebalances, 24 with turnover binding, 19 with a weight bound binding
+lstm_regime: 92 exploratory-period rebalances, 33 with turnover binding, 15 with a weight bound binding
+lstm_blend: 92 exploratory-period rebalances, 33 with turnover binding, 15 with a weight bound binding
+Saved per-config detail to /content/capstone-regime-portfolio/outputs/real_data_binding_constraints_<config>.csv
+
+The run reports all six primary configurations (ERC and LSTM, each baseline/regime/blend) plus equal_weight. The primary LSTM parameters are trained on the initial estimation window and remain fixed during the walk-forward evaluation, while the HMM, predictive-density models, and state covariance estimates are refit on their scheduled expanding-window cadence. The 2015-2018 period is used for development and specification selection. The 2019-2026 results are non-anticipative historical walk-forward evidence but are not an independent holdout because that period was previously inspected. real_data_summary.csv reports gross performance. Net-of-cost results under the 5, 10, and 25 basis-point assumptions are reported in real_data_cost_sensitivity.csv; DSR is reported separately above.

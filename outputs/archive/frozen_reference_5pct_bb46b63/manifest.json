@@ -1,0 +1,24 @@
+{
+  "created_utc": "2026-10-19T04:11:07.949848+00:00",
+  "git_branch": "feature/lstm-bounded-softmax-stability",
+  "git_commit": "bb46b63f4e8883f365049fcfbb227f13ce691bf0",
+  "specification": {
+    "lstm_budget_floor": 0.05,
+    "lstm_seed": 123,
+    "lstm_epochs": 200,
+    "risk_free_source": "FRED DGS3MO",
+    "risk_free_conversion": "252-trading-day approximation",
+    "headline_transaction_cost_bps": 5,
+    "final_test_start": "2019-01-02",
+    "final_test_end": "2026-08-31",
+    "evaluation_status": "exploratory_historical_walk_forward"
+  },
+  "files": {
+    "src/allocation_lstm.py": "f75a1d5f986cd380b3b22a054590f5d85b84ae7b572c574e498eef3693d28375",
+    "src/evaluation.py": "90a68593673f3fad604956f163c1d16d7b95d4755494841fbaf46271d84433dd",
+    "src/walkforward.py": "cb52654e31aaba88cc9b0f2ec305a0f8b9a9e74a454d7cf2339d2477e19755a9",
+    "scripts/run_real_data.py": "3b6310975616e7b75403ca2bbbdca7e45d889b615345d0d0fbd5168b4bf4d0b9",
+    "data/raw/risk_free_DGS3MO_daily.csv": "1ffc52a149486fbfb96dfb674792582fd706a5574df27972325dede41d716b06",
+    "requirements-reference-lock.txt": "19feeea6f0e646dda54f9acce8caf8e879b008dca2850bebb3a67f722991fbb0"
+  }
+}
