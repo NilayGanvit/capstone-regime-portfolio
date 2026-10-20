@@ -40,7 +40,11 @@ because it was inspected during model development.
     `random_state=123` and `budget_floor=0.05`, adds `sharpe_zero_rf` columns,
     and saves `real_data_rq_excess_returns_5bps.csv`.
   - Its DSR is the older single-trial-count form from before the sensitivity
-    grid, so the sensitivity grid is not among this run's outputs.
+    grid, so the sensitivity grid is not among this run's outputs. It is
+    recomputed from this archive's returns by `scripts/compute_frozen_dsr_grid.py`
+    into `outputs/frozen_reference_dsr_sensitivity_grid.csv` (the equal-weight
+    series, absent from the archived return files, is regenerated and
+    cross-checked against the archived ERC series and Sharpe).
 - The manifest's hashes of the six files it lists were verified against the
   files in this directory (all match, 2026-10-20).
 

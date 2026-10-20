@@ -18,6 +18,7 @@ from evaluation import (
     trial_sharpe_variance_sensitivity,
     trial_candidate_sharpes_by_family,
     dsr_sensitivity_grid,
+    dsr_grid_dataframe,
     build_dsr_sensitivity_scenarios,
     deflated_sharpe_ratio_ls_gaussian,
     deflated_sharpe_ratio_ls_gumbel,
@@ -812,3 +813,22 @@ def test_deflated_sharpe_ratio_ls_gumbel_is_also_unstable_between_unit_and_empir
         observed_sharpe=0.8, n_trials=7, sharpe_variance_across_trials=1.0,
     )
     assert dsr_ls_small_variance > dsr_ls_unit_variance + 0.2
+
+
+def test_dsr_grid_dataframe_matches_the_underlying_grid_cell_for_cell():
+    rng = np.random.default_rng(5)
+    returns = {"a": rng.normal(0.0004, 0.01, 500), "b": rng.normal(0.0002, 0.012, 500)}
+    variances = {"small": 0.02, "unit": 1.0}
+    ks = {"k3": 3, "k9": 9}
+    df = dsr_grid_dataframe(returns, variances, ks)
+    assert len(df) == 2 * 2 * 2
+    assert list(df["config"].unique()) == ["a", "b"]
+    for config, r in returns.items():
+        sr = sharpe_ratio(r)
+        grid = dsr_sensitivity_grid(observed_sharpe=sr, returns=r, variance_scenarios=variances, k_scenarios=ks)
+        for v, row in grid.items():
+            for k, cell in row.items():
+                got = df[(df.config == config) & (df.variance_scenario == v) & (df.k_scenario == k)].iloc[0]
+                assert got["dsr_l"] == pytest.approx(round(cell["dsr_l"], 4))
+                assert got["dsr_ls_gumbel"] == pytest.approx(round(cell["dsr_ls_gumbel"], 4))
+                assert got["sharpe"] == pytest.approx(round(sr, 4))

@@ -1026,3 +1026,36 @@ def deflated_sharpe_ratio_ls_gumbel(
     if sigma_k <= 0 or not np.isfinite(sigma_k):
         return float("nan")
     return float(_standardized_gumbel_cdf((observed_sharpe - mu_k) / sigma_k))
+
+
+def dsr_grid_dataframe(
+    excess_returns_by_config: dict,
+    variance_scenarios: dict,
+    k_scenarios: dict,
+) -> "pd.DataFrame":
+    """One row per (config, variance scenario, K scenario) of the DSR
+    sensitivity grid, computed from each config's daily net returns in excess
+    of the risk-free rate. `sharpe` is that excess series' own Sharpe ratio,
+    the observed value each grid cell is graded against.
+    """
+    import pandas as pd
+
+    rows = []
+    for config, excess in excess_returns_by_config.items():
+        excess = np.asarray(excess, dtype=float)
+        sr = sharpe_ratio(excess)
+        grid = dsr_sensitivity_grid(
+            observed_sharpe=sr, returns=excess,
+            variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
+        )
+        for v_name, row in grid.items():
+            for k_name, cell in row.items():
+                rows.append({
+                    "config": config, "sharpe": round(sr, 4),
+                    "variance_scenario": v_name, "variance_value": round(variance_scenarios[v_name], 4),
+                    "k_scenario": k_name, "k_value": k_scenarios[k_name],
+                    "dsr_l": round(cell["dsr_l"], 4),
+                    "dsr_ls_gaussian": round(cell["dsr_ls_gaussian"], 4),
+                    "dsr_ls_gumbel": round(cell["dsr_ls_gumbel"], 4),
+                })
+    return pd.DataFrame(rows)

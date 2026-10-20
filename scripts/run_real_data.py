@@ -108,7 +108,7 @@ from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
     herfindahl_concentration, average_turnover,
     net_of_cost_returns, stationary_bootstrap_rq_contrasts,
-    build_dsr_sensitivity_scenarios, dsr_sensitivity_grid,
+    build_dsr_sensitivity_scenarios, dsr_grid_dataframe,
 )
 
 FEE_BPS_SENSITIVITY = [5.0, 10.0, 25.0]  # M2's proposed baseline plus its two sensitivity checks
@@ -119,6 +119,24 @@ LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
 LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
+
+
+def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_matrix=None):
+    """The walk-forward every reported result comes from. Without LSTM models
+    it returns the ERC and equal-weight configs only, which do not depend on
+    LSTM training and so reproduce exactly across environments."""
+    return run_walk_forward(
+        ds.returns,
+        n_states=LSTM_N_STATES,
+        initial_window=initial_window,
+        alpha=0.97,
+        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
+        close_to_open_returns=ds.close_to_open_returns if ds.opens is not None else None,
+        open_to_close_returns=ds.open_to_close_returns if ds.opens is not None else None,
+        lstm_models=lstm_models,
+        lstm_feature_matrix=lstm_feature_matrix,
+        lstm_seq_len=LSTM_SEQ_LEN,
+    )
 
 
 def binding_constraints_dataframe(binding_history: list, calendar: M2Calendar, stage: str) -> pd.DataFrame:
@@ -255,18 +273,7 @@ def main() -> None:
     print(f"LSTM training runtime: {time.time() - t0:.1f}s\n")
 
     t0 = time.time()
-    result = run_walk_forward(
-        returns,
-        n_states=LSTM_N_STATES,
-        initial_window=initial_window,
-        alpha=0.97,
-        constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
-        close_to_open_returns=ds.close_to_open_returns if ds.opens is not None else None,
-        open_to_close_returns=ds.open_to_close_returns if ds.opens is not None else None,
-        lstm_models=lstm_models,
-        lstm_feature_matrix=lstm_feature_matrix,
-        lstm_seq_len=LSTM_SEQ_LEN,
-    )
+    result = run_primary_walk_forward(ds, initial_window, lstm_models, lstm_feature_matrix)
     runtime = time.time() - t0
     print(f"\nWalk-forward runtime: {runtime:.1f}s over {len(result.dates)} trading days, "
           f"{len(result.weights)} configs\n")
@@ -460,34 +467,20 @@ def main() -> None:
               "5%, while the Gumbel reference is asymptotically exact). All three are different "
               "representations of the same search-adjusted null, not competing estimates.")
 
-        grid_rows = []
-        for config in result.portfolio_returns:
-            net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
-            net_final = net_5bps[final_test_mask] - risk_free_daily[final_test_mask]  # excess over T-bill
-            sr = sharpe_ratio(net_final)
-            grid = dsr_sensitivity_grid(
-                observed_sharpe=sr, returns=net_final,
-                variance_scenarios=variance_scenarios, k_scenarios=k_scenarios,
-            )
-            dsr_l_vals = [cell["dsr_l"] for row in grid.values() for cell in row.values()]
-            dsr_ls_gaussian_vals = [cell["dsr_ls_gaussian"] for row in grid.values() for cell in row.values()]
-            dsr_ls_gumbel_vals = [cell["dsr_ls_gumbel"] for row in grid.values() for cell in row.values()]
-            print(f"{config}: net-of-cost Sharpe={sr:.3f}, "
-                  f"DSR-L range=[{min(dsr_l_vals):.3f}, {max(dsr_l_vals):.3f}], "
-                  f"DSR-LS,Gaussian range=[{min(dsr_ls_gaussian_vals):.3f}, {max(dsr_ls_gaussian_vals):.3f}], "
-                  f"DSR-LS,Gumbel range=[{min(dsr_ls_gumbel_vals):.3f}, {max(dsr_ls_gumbel_vals):.3f}] "
+        excess_by_config = {
+            config: net_of_cost_returns(
+                result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0,
+            )[final_test_mask] - risk_free_daily[final_test_mask]  # excess over T-bill
+            for config in result.portfolio_returns
+        }
+        grid_df = dsr_grid_dataframe(excess_by_config, variance_scenarios, k_scenarios)
+        for config, g in grid_df.groupby("config", sort=False):
+            print(f"{config}: net-of-cost Sharpe={g['sharpe'].iloc[0]:.3f}, "
+                  f"DSR-L range=[{g['dsr_l'].min():.3f}, {g['dsr_l'].max():.3f}], "
+                  f"DSR-LS,Gaussian range=[{g['dsr_ls_gaussian'].min():.3f}, {g['dsr_ls_gaussian'].max():.3f}], "
+                  f"DSR-LS,Gumbel range=[{g['dsr_ls_gumbel'].min():.3f}, {g['dsr_ls_gumbel'].max():.3f}] "
                   f"across {len(variance_scenarios)}x{len(k_scenarios)} assumption grid")
-            for v_name, row in grid.items():
-                for k_name, cell in row.items():
-                    grid_rows.append({
-                        "config": config, "sharpe": round(sr, 4),
-                        "variance_scenario": v_name, "variance_value": round(variance_scenarios[v_name], 4),
-                        "k_scenario": k_name, "k_value": k_scenarios[k_name],
-                        "dsr_l": round(cell["dsr_l"], 4),
-                        "dsr_ls_gaussian": round(cell["dsr_ls_gaussian"], 4),
-                        "dsr_ls_gumbel": round(cell["dsr_ls_gumbel"], 4),
-                    })
-        pd.DataFrame(grid_rows).to_csv(out_dir / "real_data_dsr_sensitivity_grid.csv", index=False)
+        grid_df.to_csv(out_dir / "real_data_dsr_sensitivity_grid.csv", index=False)
         print(f"Saved full grid to {out_dir / 'real_data_dsr_sensitivity_grid.csv'}")
         print("Compare each config's printed ranges above against the variance/K scenarios: on "
               "the archived reference run, every recovered empirical-variance scenario (pooled "
