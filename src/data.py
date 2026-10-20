@@ -181,27 +181,45 @@ def stage_labels(dates: pd.DatetimeIndex, calendar: M2Calendar = M2Calendar()) -
     return pd.Series([_label(d) for d in dates], index=dates, name="stage")
 
 
-def load_risk_free_daily(directory: str, dates: pd.DatetimeIndex) -> np.ndarray:
-    """Daily simple risk-free rate, aligned to `dates`, for excess-return
-    Sharpe calculations (see data/raw/SOURCE.md's "Risk-free rate" section
-    for provenance). Reads `IRX.csv` (`^IRX`, the CBOE 13-week T-bill rate,
-    an annualized percentage), converts to a daily simple rate via
-    `AnnualRatePct / 100 / periods_per_year` -- the same trading-days-per-
-    year convention as evaluation.sharpe_ratio, and the same simple (not
-    log-compounded) return convention the portfolio returns it's
-    subtracted from already use.
+RISK_FREE_FILE = "risk_free_DGS3MO_daily.csv"
 
-    Reindexed onto `dates` with a forward-fill: the T-bill series doesn't
-    trade on an identical calendar to the ETF universe (1-2 days
-    difference over the full history), so an exact date-for-date match
-    isn't guaranteed.
+
+def build_risk_free_daily(yields_pct: pd.Series, dates: pd.DatetimeIndex, periods_per_year: int = 252) -> pd.DataFrame:
+    """Daily risk-free return for each date in `dates`, from annualised
+    percentage yields (FRED DGS3MO, the 3-month constant-maturity Treasury
+    yield).
+
+    Lagged: the rate applied to the return on date d is the last yield
+    observed strictly before d, since the yield for d is only known at d's
+    close. Compounded: rf_daily = (1 + y/100) ** (1/periods_per_year) - 1.
+    Returns columns `yield_pct_prior` and `rf_daily`, indexed by `dates`,
+    the layout load_risk_free_daily reads.
     """
-    raw = pd.read_csv(f"{directory}/IRX.csv", index_col=0, parse_dates=True)["AnnualRatePct"]
-    aligned = raw.reindex(raw.index.union(dates)).sort_index().ffill().reindex(dates)
+    obs = yields_pct.dropna().sort_index()
+    prior = [obs[obs.index < d].iloc[-1] if (obs.index < d).any() else np.nan for d in dates]
+    prior = pd.Series(prior, index=pd.DatetimeIndex(dates), name="yield_pct_prior")
+    if prior.isna().any():
+        raise ValueError("build_risk_free_daily: some dates precede the first yield observation, "
+                         "so no prior yield exists for them.")
+    rf = (1.0 + prior / 100.0) ** (1.0 / periods_per_year) - 1.0
+    return pd.DataFrame({"yield_pct_prior": prior, "rf_daily": rf.rename("rf_daily")})
+
+
+def load_risk_free_daily(directory: str, dates: pd.DatetimeIndex) -> np.ndarray:
+    """Daily simple risk-free returns aligned to `dates`, read from
+    `risk_free_DGS3MO_daily.csv` (written by scripts/fetch_risk_free.py;
+    columns date, yield_pct_prior, rf_daily). The alignment is strict: a
+    date missing from the file raises rather than being filled, so a
+    mismatch between the file and the return calendar cannot pass silently.
+    """
+    frame = pd.read_csv(f"{directory}/{RISK_FREE_FILE}", parse_dates=["date"])
+    if frame["date"].duplicated().any():
+        raise ValueError("load_risk_free_daily: duplicate dates in the risk-free file.")
+    aligned = frame.set_index("date")["rf_daily"].reindex(pd.DatetimeIndex(dates))
     if aligned.isna().any():
-        raise ValueError("load_risk_free_daily: IRX.csv doesn't cover the start of `dates` -- "
-                          "forward-fill can't back-fill a rate before the series begins.")
-    return (aligned.to_numpy() / 100.0) / 252
+        raise ValueError(f"load_risk_free_daily: the risk-free file has no value for "
+                         f"{int(aligned.isna().sum())} of the requested dates.")
+    return aligned.to_numpy(dtype=float)
 
 
 def make_synthetic_universe(

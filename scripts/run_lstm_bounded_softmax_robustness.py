@@ -68,9 +68,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import PriceDataset, M2Calendar, initial_window_length, stage_labels  # noqa: E402
-from features import build_feature_matrix  # noqa: E402
-from regime import GaussianHMM  # noqa: E402
-from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator  # noqa: E402
+from lstm_training import train_lstm_variants  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec  # noqa: E402
 from evaluation import sharpe_ratio, cagr, max_drawdown, net_of_cost_returns  # noqa: E402
@@ -97,40 +95,6 @@ LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3
 HEADLINE_FEE_BPS = 5.0
 FLOOR_TOLERANCE = 1e-4  # a budget within this of BUDGET_FLOOR counts as "at the floor"
-
-
-def train_lstm_variants(returns: pd.DataFrame, initial_window: int, random_state: int) -> tuple[dict, pd.DataFrame]:
-    """Same construction as scripts/run_real_data.py's train_lstm_variants
-    (with budget_floor wired in), duplicated here so this seed sweep
-    stays self-contained -- same pattern as the existing (uncommitted)
-    run_lstm_seed_robustness.py."""
-    n_assets = returns.shape[1]
-    train_returns = returns.iloc[:initial_window]
-    feature_matrix = build_feature_matrix(returns)
-    train_features = feature_matrix.loc[:train_returns.index[-1]]
-
-    hmm = GaussianHMM(n_states=LSTM_N_STATES, random_state=0).fit(train_returns.to_numpy())
-    regime_probs = hmm.predicted_probabilities(train_returns.to_numpy())
-    regime_prob_df = pd.DataFrame(
-        regime_probs, index=train_returns.index,
-        columns=[f"regime_prob_{k}" for k in range(LSTM_N_STATES)],
-    )
-    regime_features_train = train_features.join(regime_prob_df, how="inner")
-
-    models = {}
-    for variant_name, feats in [("baseline", train_features), ("regime", regime_features_train)]:
-        windows, covs, fwd, dates = build_lstm_training_windows(
-            feats, train_returns, seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW,
-        )
-        model = RiskBudgetLSTM(
-            n_features=windows[0].shape[1], n_assets=n_assets,
-            random_state=random_state, budget_floor=BUDGET_FLOOR,
-        )
-        result = train_lstm_allocator(
-            model, windows, covs, fwd, n_epochs=LSTM_N_EPOCHS, turnover_penalty=0.1, shrinkage=0.10,
-        )
-        models[variant_name] = result["model"]
-    return models, feature_matrix
 
 
 def floor_concentration(budgets_history: list, final_test_dates: set) -> float:
@@ -166,7 +130,10 @@ def main() -> None:
     for seed in SEEDS:
         print(f"\n--- seed={seed} ---")
         t0 = time.time()
-        lstm_models, lstm_feature_matrix = train_lstm_variants(full_returns, initial_window, random_state=seed)
+        lstm_models, lstm_feature_matrix = train_lstm_variants(
+            full_returns, initial_window, seed=seed, budget_floor=BUDGET_FLOOR, n_epochs=LSTM_N_EPOCHS,
+            seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW, n_states=LSTM_N_STATES,
+        )
         print(f"  trained in {time.time() - t0:.1f}s")
 
         t0 = time.time()

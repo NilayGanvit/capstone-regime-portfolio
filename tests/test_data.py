@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
 
-from data import make_synthetic_universe, UNIVERSE, PriceDataset, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily
+from data import make_synthetic_universe, UNIVERSE, PriceDataset, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily, build_risk_free_daily
 
 
 def test_synthetic_universe_shape_and_columns():
@@ -113,30 +113,42 @@ def test_stage_labels_boundary_dates_are_inclusive_to_the_earlier_stage():
     assert list(labels) == ["initial_training", "validation", "final_test"]
 
 
-def test_load_risk_free_daily_converts_annual_pct_to_daily_simple_rate(tmp_path):
-    irx_dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])
-    pd.DataFrame({"AnnualRatePct": [5.0, 5.0, 5.04]}, index=irx_dates).rename_axis("Date").to_csv(tmp_path / "IRX.csv")
-    rf = load_risk_free_daily(str(tmp_path), irx_dates)
-    assert rf == pytest.approx([0.05 / 252, 0.05 / 252, 0.0504 / 252])
+def test_build_risk_free_daily_uses_the_prior_observation_and_compounds():
+    yields = pd.Series([5.0, 4.0], index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
+    dates = pd.to_datetime(["2020-01-03", "2020-01-06"])
+    out = build_risk_free_daily(yields, dates)
+    assert list(out["yield_pct_prior"]) == [5.0, 4.0]  # 01-03 sees 01-02's yield, 01-06 sees 01-03's
+    assert out["rf_daily"].to_numpy() == pytest.approx([1.05 ** (1 / 252) - 1, 1.04 ** (1 / 252) - 1])
 
 
-def test_load_risk_free_daily_forward_fills_dates_the_rate_series_skips(tmp_path):
-    # The T-bill series doesn't trade on an identical calendar to the ETF
-    # universe -- a date missing from IRX.csv should carry the prior
-    # observation forward, not raise or silently drop it.
-    irx_dates = pd.to_datetime(["2020-01-02", "2020-01-06"])
-    pd.DataFrame({"AnnualRatePct": [5.0, 5.04]}, index=irx_dates).rename_axis("Date").to_csv(tmp_path / "IRX.csv")
-    query_dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])  # 01-03 absent from IRX.csv
-    rf = load_risk_free_daily(str(tmp_path), query_dates)
-    assert rf == pytest.approx([0.05 / 252, 0.05 / 252, 0.0504 / 252])
+def test_build_risk_free_daily_skips_blank_holiday_observations():
+    yields = pd.Series([5.0, np.nan, 4.0], index=pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"]))
+    out = build_risk_free_daily(yields, pd.to_datetime(["2020-01-07"]))
+    assert out["yield_pct_prior"].iloc[0] == 4.0
 
 
-def test_load_risk_free_daily_raises_if_dates_precede_the_rate_series():
-    import tempfile
+def test_build_risk_free_daily_raises_when_a_date_has_no_prior_yield():
+    yields = pd.Series([5.0], index=pd.to_datetime(["2020-01-02"]))
+    with pytest.raises(ValueError, match="precede the first yield"):
+        build_risk_free_daily(yields, pd.to_datetime(["2020-01-02"]))  # nothing strictly before the first date
 
-    irx_dates = pd.to_datetime(["2020-01-06", "2020-01-07"])
-    with tempfile.TemporaryDirectory() as d:
-        pd.DataFrame({"AnnualRatePct": [5.0, 5.0]}, index=irx_dates).rename_axis("Date").to_csv(Path(d) / "IRX.csv")
-        query_dates = pd.to_datetime(["2020-01-02", "2020-01-06"])  # 01-02 precedes the series
-        with pytest.raises(ValueError, match="doesn't cover the start"):
-            load_risk_free_daily(d, query_dates)
+
+def test_load_risk_free_daily_roundtrips_the_builder_output(tmp_path):
+    dates = pd.to_datetime(["2020-01-03", "2020-01-06"])
+    yields = pd.Series([5.0, 4.0], index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
+    build_risk_free_daily(yields, dates).rename_axis("date").to_csv(tmp_path / "risk_free_DGS3MO_daily.csv", float_format="%.12f")
+    assert load_risk_free_daily(str(tmp_path), dates) == pytest.approx([1.05 ** (1 / 252) - 1, 1.04 ** (1 / 252) - 1], abs=1e-12)
+
+
+def test_load_risk_free_daily_raises_instead_of_filling_a_missing_date(tmp_path):
+    pd.DataFrame({"date": pd.to_datetime(["2020-01-03"]), "yield_pct_prior": [5.0], "rf_daily": [0.0002]}).to_csv(
+        tmp_path / "risk_free_DGS3MO_daily.csv", index=False)
+    with pytest.raises(ValueError, match="no value for 1 of the requested dates"):
+        load_risk_free_daily(str(tmp_path), pd.to_datetime(["2020-01-03", "2020-01-06"]))
+
+
+def test_load_risk_free_daily_rejects_duplicate_dates(tmp_path):
+    pd.DataFrame({"date": pd.to_datetime(["2020-01-03", "2020-01-03"]), "yield_pct_prior": [5.0, 5.0],
+                  "rf_daily": [0.0002, 0.0002]}).to_csv(tmp_path / "risk_free_DGS3MO_daily.csv", index=False)
+    with pytest.raises(ValueError, match="duplicate dates"):
+        load_risk_free_daily(str(tmp_path), pd.to_datetime(["2020-01-03"]))

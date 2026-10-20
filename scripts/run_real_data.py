@@ -101,9 +101,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily  # noqa: E402
-from features import build_feature_matrix  # noqa: E402
-from regime import GaussianHMM  # noqa: E402
-from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator  # noqa: E402
+from lstm_training import train_lstm_variants  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
@@ -121,45 +119,6 @@ LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
 LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
-
-
-def train_lstm_variants(returns: pd.DataFrame, initial_window: int) -> tuple[dict, pd.DataFrame]:
-    """Train the baseline and regime-aware LSTM allocators on
-    returns[:initial_window] only -- see this script's module docstring
-    for why. Returns ({"baseline": model, "regime": model},
-    full-history feature_matrix) ready to pass straight into
-    run_walk_forward's lstm_models/lstm_feature_matrix."""
-    n_assets = returns.shape[1]
-    train_returns = returns.iloc[:initial_window]
-    feature_matrix = build_feature_matrix(returns)  # causal by construction, safe over full history
-    train_features = feature_matrix.loc[:train_returns.index[-1]]
-
-    hmm = GaussianHMM(n_states=LSTM_N_STATES, random_state=0).fit(train_returns.to_numpy())
-    regime_probs = hmm.predicted_probabilities(train_returns.to_numpy())
-    regime_prob_df = pd.DataFrame(
-        regime_probs, index=train_returns.index,
-        columns=[f"regime_prob_{k}" for k in range(LSTM_N_STATES)],
-    )
-    regime_features_train = train_features.join(regime_prob_df, how="inner")
-
-    models = {}
-    for variant_name, feats in [("baseline", train_features), ("regime", regime_features_train)]:
-        windows, covs, fwd, dates = build_lstm_training_windows(
-            feats, train_returns, seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW,
-        )
-        print(f"LSTM {variant_name}: {len(windows)} training windows, "
-              f"{pd.Timestamp(dates[0]).date()} to {pd.Timestamp(dates[-1]).date()}")
-        model = RiskBudgetLSTM(
-            n_features=windows[0].shape[1], n_assets=n_assets, budget_floor=LSTM_BUDGET_FLOOR,
-        )
-        t0 = time.time()
-        result = train_lstm_allocator(
-            model, windows, covs, fwd, n_epochs=LSTM_N_EPOCHS, turnover_penalty=0.1, shrinkage=0.10,
-        )
-        print(f"LSTM {variant_name}: trained in {time.time() - t0:.1f}s, "
-              f"loss {result['loss_history'][0]:.4f} -> {result['loss_history'][-1]:.4f}")
-        models[variant_name] = result["model"]
-    return models, feature_matrix
 
 
 def binding_constraints_dataframe(binding_history: list, calendar: M2Calendar, stage: str) -> pd.DataFrame:
@@ -225,6 +184,7 @@ def cost_sensitivity_table(result, stages: pd.Series, risk_free_daily: np.ndarra
                 "config": config,
                 "fee_bps": fee_bps,
                 "sharpe_net": round(sharpe_ratio(net[final_test_mask], risk_free=rf_final), 3),
+                "sharpe_zero_rf": round(sharpe_ratio(net[final_test_mask]), 3),
                 "cagr_net": round(cagr(net[final_test_mask]), 4),
             })
     return pd.DataFrame(rows).set_index(["config", "fee_bps"])
@@ -249,6 +209,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
             "config": config,
             "n_days": int(mask.sum()),
             "sharpe": round(sharpe_ratio(r[mask], risk_free=rf), 3),
+            "sharpe_zero_rf": round(sharpe_ratio(r[mask]), 3),
             "cagr": round(cagr(r[mask]), 4),
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
@@ -287,7 +248,10 @@ def main() -> None:
     print(f"\n--- Training LSTM baseline/regime allocators on the initial "
           f"window only ({LSTM_N_EPOCHS} epochs each) ---")
     t0 = time.time()
-    lstm_models, lstm_feature_matrix = train_lstm_variants(returns, initial_window)
+    lstm_models, lstm_feature_matrix = train_lstm_variants(
+        returns, initial_window, budget_floor=LSTM_BUDGET_FLOOR, n_epochs=LSTM_N_EPOCHS,
+        seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW, n_states=LSTM_N_STATES, verbose=True,
+    )
     print(f"LSTM training runtime: {time.time() - t0:.1f}s\n")
 
     t0 = time.time()
@@ -364,8 +328,19 @@ def main() -> None:
         rq_return_table.to_csv(rq_returns_path, index=False)
         print(f"Saved bootstrap input returns to {rq_returns_path}")
 
+        # The CSV above keeps the raw net returns; the bootstrap runs on excess
+        # returns over the T-bill rate so its Sharpe contrasts use the same
+        # definition as the headline tables.
+        rf_final = risk_free_daily[final_test_mask]
+        rq_excess_returns = {name: r - rf_final for name, r in rq_returns.items()}
+        rq_excess_path = out_dir / "real_data_rq_excess_returns_5bps.csv"
+        pd.DataFrame({
+            "date": pd.to_datetime(np.asarray(result.dates)[final_test_mask]),
+            **rq_excess_returns,
+        }).to_csv(rq_excess_path, index=False)
+        print(f"Saved bootstrap excess returns to {rq_excess_path}")
         rq_ci = stationary_bootstrap_rq_contrasts(
-            rq_returns,
+            rq_excess_returns,
             n_boot=2000,
             ci=0.95,
             random_state=0,
@@ -465,6 +440,12 @@ def main() -> None:
         print("K scenarios (effective number of trials):")
         for name, value in k_scenarios.items():
             print(f"  {name}: {value}")
+        print("Basis note: the observed Sharpes graded below are in excess of the T-bill rate, but the "
+              "variance scenarios come from outputs/trial_candidate_sharpes.csv, recovered from "
+              "commit messages and earlier CSVs on a zero-risk-free basis with no daily return paths "
+              "to recompute them. DSR uses only the cross-trial VARIANCE, which a common shift leaves "
+              "unchanged; candidates evaluated over different periods or volatilities would shift by "
+              "different amounts, so read the variance scenarios as approximate on the excess basis.")
 
         print("Each cell reports three representations side by side: DSR-L (deflated_sharpe_ratio, "
               "the original Bailey & Lopez de Prado 2014 formulation -- search-adjusted location "
@@ -482,7 +463,7 @@ def main() -> None:
         grid_rows = []
         for config in result.portfolio_returns:
             net_5bps = net_of_cost_returns(result.dates, result.portfolio_returns[config], result.execution_history[config], fee_bps=5.0)
-            net_final = net_5bps[final_test_mask]
+            net_final = net_5bps[final_test_mask] - risk_free_daily[final_test_mask]  # excess over T-bill
             sr = sharpe_ratio(net_final)
             grid = dsr_sensitivity_grid(
                 observed_sharpe=sr, returns=net_final,
