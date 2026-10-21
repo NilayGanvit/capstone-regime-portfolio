@@ -1,0 +1,13 @@
+solver,arm,config,sharpe_zero_rf,sharpe_excess,cagr,max_drawdown
+slsqp,no_refit,erc_baseline,0.382924,0.226257,0.0187286,-0.0840078
+slsqp,no_refit,erc_regime,0.40506,0.249035,0.0199809,-0.0937756
+slsqp,no_refit,erc_blend,0.40508,0.249056,0.0199821,-0.0937757
+slsqp,no_refit,equal_weight,0.352458,0.234568,0.0222084,-0.133069
+slsqp,monthly,erc_baseline,0.384997,0.228071,0.0188096,-0.0853388
+slsqp,monthly,erc_regime,0.385953,0.230756,0.0190582,-0.0941235
+slsqp,monthly,erc_blend,0.385942,0.230745,0.0190576,-0.0941235
+slsqp,monthly,equal_weight,0.352458,0.234568,0.0222084,-0.133069
+slsqp,quarterly,erc_baseline,0.384452,0.227572,0.0187859,-0.0853133
+slsqp,quarterly,erc_regime,0.409148,0.25408,0.0203164,-0.0933617
+slsqp,quarterly,erc_blend,0.409133,0.254066,0.0203157,-0.0933617
+slsqp,quarterly,equal_weight,0.352458,0.234568,0.0222084,-0.133069

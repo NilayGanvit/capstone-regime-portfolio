@@ -1,0 +1,13 @@
+solver,arm,config,sharpe_zero_rf,sharpe_excess,cagr,max_drawdown
+exact,no_refit,erc_baseline,0.382924,0.226257,0.0187286,-0.0840078
+exact,no_refit,erc_regime,0.386413,0.229695,0.0189091,-0.0921039
+exact,no_refit,erc_blend,0.386387,0.229669,0.0189078,-0.092104
+exact,no_refit,equal_weight,0.352458,0.234568,0.0222084,-0.133069
+exact,monthly,erc_baseline,0.384997,0.228071,0.0188096,-0.0853388
+exact,monthly,erc_regime,0.385953,0.230756,0.0190582,-0.0941235
+exact,monthly,erc_blend,0.385942,0.230745,0.0190576,-0.0941235
+exact,monthly,equal_weight,0.352458,0.234568,0.0222084,-0.133069
+exact,quarterly,erc_baseline,0.384452,0.227572,0.0187859,-0.0853133
+exact,quarterly,erc_regime,0.382532,0.227364,0.0188785,-0.0941737
+exact,quarterly,erc_blend,0.382517,0.22735,0.0188777,-0.0941737
+exact,quarterly,equal_weight,0.352458,0.234568,0.0222084,-0.133069

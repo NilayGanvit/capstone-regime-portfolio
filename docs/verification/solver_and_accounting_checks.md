@@ -127,3 +127,43 @@ inputs captured by `audit_erc_solver.py` from a separate ERC-only walk-forward:
   0.0075; the objective is non-convex, so neither is a certificate of the optimum.
   "Better parity exists than the frozen allocation" holds on four dates in both,
   and is marginal on the fifth.
+
+## 6. Does the solver failure move the validation-period refit-cadence selection?
+
+Yes. `scripts/verification/refit_cadence_solver_check.py` repeats the three-arm
+validation comparison (2015-2018, returns cut at the validation end) under either
+solver. With SLSQP it reproduces the saved comparison exactly. `erc_regime`
+validation Sharpe, gross with a zero risk-free rate (the basis of the original
+selection):
+
+| arm | SLSQP (as frozen) | exact solver | SLSQP dates with an asset at zero weight |
+|---|---|---|---|
+| no refit | 0.4051 | 0.3864 | 2015-01-30, 2015-08-31, 2016-02-29 |
+| monthly | 0.3860 | 0.3860 | none |
+| quarterly | 0.4091 | 0.3825 | 2015-01-30 |
+
+- The rule (retain an arm only if it matches or beats no refit) kept quarterly on a
+  margin of +0.0041. With the exact solver the margin is -0.0039 and **no arm is
+  retained**: the three cadences are indistinguishable (0.386, 0.386, 0.383).
+- The failures moved the arms by 0.019 (no refit) and 0.027 (quarterly), five to
+  seven times the margin the selection rested on. Monthly, which had no failures,
+  is unchanged to four decimals, which is the expected control.
+- The margin was never distinguishable from noise: the paired stationary-bootstrap
+  interval for quarterly minus no refit is [-0.050, +0.066] with SLSQP and
+  [-0.038, +0.032] with the exact solver.
+- Excess-return Sharpe tells the same story (SLSQP 0.249 / 0.231 / 0.254; exact
+  0.230 / 0.231 / 0.227).
+- The failure is not confined to 2015-01-30: the no-refit arm also fails on
+  2015-08-31 and 2016-02-29.
+
+What this does and does not change. The frozen reference uses quarterly refitting
+as its specification, and that is unaffected. What changes is the justification:
+validation evidence does not favour quarterly over monthly or no refit, so the
+choice is a free design choice, not an empirical finding. The Sharpes recovered
+for trial 6 in `outputs/trial_candidate_sharpes.csv` (0.405, 0.386, 0.409) are the
+SLSQP values.
+
+Not checked: the LSTM floor comparison (2.5% vs 5%) used validation Sharpe and
+ran through the same SLSQP weights. The final choice rested on cross-initialisation
+budget dispersion, which does not depend on the solver, but the validation-Sharpe
+comparison has not been repeated with the exact solver.
