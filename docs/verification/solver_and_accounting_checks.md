@@ -209,6 +209,49 @@ but Sharpe is described as the primary measure, and on it 5% does not win.
 **Scope.** This is five seeds and two floors, on the validation period. The LSTM
 Sharpe levels themselves move with the solver (regime LSTM at 5%: 0.531 with SLSQP,
 0.456 exact), so the LSTM rows of every table built on SLSQP weights, including the
-frozen reference, are exposed to this. That has not been measured on the final-test
-period. The frozen run's ten trained checkpoints are archived, and replaying them
-under the exact solver would measure it.
+frozen reference, are exposed to this. Section 8 measures it on the final-test period.
+
+## 8. The frozen LSTM results under the exact solver (final test)
+
+`scripts/verification/lstm_checkpoint_solver_replay.py` loads the ten-seed experiment's
+20 archived checkpoints (seeds 0-9, 5% floor), runs each through the full walk-forward,
+and converts the same learned budgets to weights by SLSQP or by the exact solution.
+Nothing is retrained and the budgets do not change. The SLSQP replay reproduces the
+archived daily net returns to 2.3e-7 and the archived Sharpe ratios to 3.9e-7, so the
+comparison isolates the solver. 2019-2026, net of 5 bps, in excess of the archived
+risk-free series; mean (sd) over seeds 0-9:
+
+| | SLSQP (as frozen) | exact solver | exact minus SLSQP, paired |
+|---|---|---|---|
+| baseline LSTM Sharpe | +0.516 (0.131) | +0.455 (0.027) | -0.061 (t -1.6) |
+| regime LSTM Sharpe | +0.614 (0.056) | +0.509 (0.056) | **-0.106 (t -7.9; lower in 10/10 seeds)** |
+| blend LSTM Sharpe | +0.607 (0.063) | +0.505 (0.062) | -0.101 (t -7.2) |
+| regime effect | +0.098 (0.159) | +0.053 (0.074) | -0.045 (t -1.0) |
+| baseline max drawdown | -23.8% | -22.5% | +1.3 pp |
+| regime max drawdown | -20.3% | -22.0% | **-1.7 pp (t -7.0; worse in 10/10)** |
+| drawdown improvement (regime vs baseline) | +3.42 pp, 10/10 seeds | **+0.50 pp, 6/10 seeds** | -2.9 pp (t -7.3) |
+| regime effect positive in | 7/10 seeds | 6/10 seeds | |
+
+How often SLSQP's weight vector has an asset at zero weight although every budget is at
+least 5%, over final-test rebalances: baseline LSTM 56.5% (17-91% across seeds), regime
+LSTM 25.8% (16-48%).
+
+Readings, with the limits that apply:
+
+- The headline LSTM Sharpe falls by about 0.1 when the learned budgets are implemented
+  exactly. The LSTM was trained through the exact (convex) layer, so the exact weights
+  are the ones its training objective assumed; the SLSQP weights are not.
+- The regime effect roughly halves and stays statistically indistinguishable from zero
+  across seeds; the paired change is not itself significant (t -1.0).
+- The drawdown improvement that held in 10 of 10 seeds under SLSQP (3.4 pp) is
+  0.5 pp and holds in 6 of 10 under the exact solver. The consistency of that finding
+  depended on the solver. The 45-seed Mac drawdown result reported earlier also used
+  SLSQP and is exposed in the same way; it has not been repeated.
+- Regime LSTM Sharpe under the exact solver (0.509) is below the equal-weight
+  benchmark's 0.608 (frozen cost-sensitivity table, 5 bps, excess), where under SLSQP
+  it was level with it (0.614). It remains above ERC (0.46).
+- Ten seeds, one market history, one checkpoint family. Exact-solver weights are strictly
+  positive, so these are more diversified portfolios, not the same portfolios with a
+  different number. Not covered: the seed-123 frozen run (no checkpoint is archived for
+  it), the ERC-versus-LSTM bootstrap contrasts and DSR on exact-solver returns, and the
+  45-seed Mac set.
