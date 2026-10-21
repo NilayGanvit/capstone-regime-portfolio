@@ -163,7 +163,52 @@ choice is a free design choice, not an empirical finding. The Sharpes recovered
 for trial 6 in `outputs/trial_candidate_sharpes.csv` (0.405, 0.386, 0.409) are the
 SLSQP values.
 
-Not checked: the LSTM floor comparison (2.5% vs 5%) used validation Sharpe and
-ran through the same SLSQP weights. The final choice rested on cross-initialisation
-budget dispersion, which does not depend on the solver, but the validation-Sharpe
-comparison has not been repeated with the exact solver.
+The LSTM floor comparison is checked in section 7.
+
+## 7. The LSTM budget-floor comparison (2.5% vs 5%) under the exact solver
+
+`scripts/verification/lstm_floor_solver_check.py` replays the saved stage-2 raw
+budget vectors (every validation rebalance, both floors, seeds 0-4, both variants)
+through the walk-forward in place of a model, with the budget-to-weight step done
+by SLSQP or by the exact solution. Training is not repeated, so only the solver
+changes. The SLSQP replay reproduces the saved validation Sharpe to 6e-7 on all 30
+(floor, seed, configuration) cells, which is the faithfulness check.
+
+**SLSQP leaves assets at zero weight on most LSTM weight vectors.** Every learned
+budget is at least the floor, so the exact weights are strictly positive; a zero
+means the weight vector does not realise the budgets the model learned. Out of 240
+validation weight vectors per cell (5 seeds x 48 dates):
+
+| floor | baseline LSTM | regime LSTM |
+|---|---|---|
+| 2.5% | 205 (85%) | 151 (63%) |
+| 5% | 191 (80%) | 116 (48%) |
+
+For comparison, SLSQP failed on 3 of 141 `erc_regime` dates. The LSTM budgets are
+concentrated, and this is the regime in which SLSQP fails. This is consistent
+with the weight-bound-binding counts already printed by earlier real-data runs
+(for example `lstm_baseline`: 87 of 92 final-period rebalances with a weight bound
+binding), which were read at the time as constraints binding.
+
+**The floor comparison reverses.** Validation Sharpe, gross with a zero risk-free
+rate, mean over seeds 0-4; difference is 5% minus 2.5%:
+
+| | SLSQP (as run) | exact solver |
+|---|---|---|
+| baseline LSTM, 2.5% / 5% | 0.585 / 0.481 | 0.558 / 0.475 |
+| regime LSTM, 2.5% / 5% | 0.514 / 0.531 | 0.526 / 0.456 |
+| baseline, 5% - 2.5% | -0.104 (t -2.0) | -0.084 (t -2.5) |
+| regime, 5% - 2.5% | +0.016 (t +0.5; 5% better in 3/5 seeds) | **-0.070 (t -7.3; 5% better in 0/5 seeds)** |
+
+With SLSQP the regime LSTM looked roughly tied across floors; with the exact weights
+the 2.5% floor is better in every seed. The saved comparison selected 5% for its
+lower cross-initialisation budget dispersion (budget dispersion does not depend on
+the solver and still favours 5%), not on Sharpe, so the choice is not contradicted;
+but Sharpe is described as the primary measure, and on it 5% does not win.
+
+**Scope.** This is five seeds and two floors, on the validation period. The LSTM
+Sharpe levels themselves move with the solver (regime LSTM at 5%: 0.531 with SLSQP,
+0.456 exact), so the LSTM rows of every table built on SLSQP weights, including the
+frozen reference, are exposed to this. That has not been measured on the final-test
+period. The frozen run's ten trained checkpoints are archived, and replaying them
+under the exact solver would measure it.
