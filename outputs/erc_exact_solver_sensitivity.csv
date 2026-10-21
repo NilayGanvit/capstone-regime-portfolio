@@ -1,0 +1,7 @@
+config,solver,sharpe_excess,cagr,max_drawdown
+erc_baseline,frozen (SLSQP),0.455196,0.0632463,-0.202328
+erc_baseline,exact convex,0.455197,0.0632463,-0.202328
+erc_regime,frozen (SLSQP),0.461615,0.063787,-0.212858
+erc_regime,exact convex,0.454632,0.062924,-0.210106
+erc_blend,frozen (SLSQP),0.465052,0.0640907,-0.212817
+erc_blend,exact convex,0.458089,0.0632267,-0.210068

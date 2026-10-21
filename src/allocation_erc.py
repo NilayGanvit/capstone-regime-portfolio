@@ -83,6 +83,57 @@ def solve_risk_budget(
     return w / w.sum()
 
 
+def solve_risk_budget_convex(
+    cov: np.ndarray,
+    target_budgets: np.ndarray | None = None,
+    tol: float = 1e-10,
+    max_iter: int = 200,
+) -> np.ndarray:
+    """Exact long-only risk-budgeting weights from the convex log-barrier
+    formulation (Spinu 2013): minimise 0.5 y'Sigma y - sum_i b_i log y_i over
+    y > 0, then w = y / sum(y). The problem is strictly convex, so its solution
+    is unique and strictly positive, and its first-order condition
+    y_i (Sigma y)_i = b_i makes every risk-contribution share equal its budget
+    exactly. This is the same formulation the differentiable training layer
+    (allocation_lstm.differentiable_risk_budget_layer) solves.
+
+    solve_risk_budget minimises the squared error between risk shares and
+    budgets directly. That objective is non-convex in w, so SLSQP can stop at a
+    local optimum with assets pinned at zero weight; this function cannot. No
+    weight cap is imposed here; caps and turnover limits are applied afterwards
+    by constraints.project_onto_constraints. Damped Newton with a
+    positivity-preserving backtracking line search; requires a positive
+    definite `cov`.
+    """
+    n = cov.shape[0]
+    b = np.full(n, 1.0 / n) if target_budgets is None else np.asarray(target_budgets, dtype=float)
+    b = b / b.sum()
+    y = np.sqrt(b / np.diag(cov))  # positive starting point near the diagonal solution
+
+    def objective(v: np.ndarray) -> float:
+        return 0.5 * v @ cov @ v - b @ np.log(v)
+
+    for _ in range(max_iter):
+        grad = cov @ y - b / y
+        err = np.max(np.abs(grad * y))  # worst |risk contribution - budget| in units of the budget scale
+        if err < tol:
+            break
+        hess = cov + np.diag(b / y ** 2)
+        step = np.linalg.solve(hess, grad)
+        t, f0 = 1.0, objective(y)
+        slack = 1e-13 * max(1.0, abs(f0))  # near the optimum f changes by less than float rounding
+        while t > 1e-14 and (np.any(y - t * step <= 0) or objective(y - t * step) > f0 - 1e-4 * t * (grad @ step) + slack):
+            t *= 0.5
+        if t <= 1e-14:
+            if err < 1e-8:
+                break  # stalled at floating-point precision, already accurate far beyond what is needed
+            raise RuntimeError("solve_risk_budget_convex: line search failed before converging.")
+        y = y - t * step
+    else:
+        raise RuntimeError("solve_risk_budget_convex did not converge.")
+    return y / y.sum()
+
+
 def erc_baseline_weights(pooled_cov: np.ndarray, shrinkage: float = 0.10) -> np.ndarray:
     """Baseline ERC: equal risk budgets against a single pooled covariance
     estimate, no regime separation."""
