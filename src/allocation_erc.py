@@ -134,17 +134,40 @@ def solve_risk_budget_convex(
     return y / y.sum()
 
 
-def erc_baseline_weights(pooled_cov: np.ndarray, shrinkage: float = 0.10) -> np.ndarray:
+RISK_BUDGET_SOLVERS = ("exact", "slsqp")
+
+
+def risk_budget_weights(
+    cov: np.ndarray,
+    target_budgets: np.ndarray | None = None,
+    solver: str = "exact",
+) -> np.ndarray:
+    """Risk-budgeting weights from the chosen solver. "exact" (the default) is the
+    strictly convex log-barrier solution, solve_risk_budget_convex. "slsqp" is the
+    original squared-share-error solve, solve_risk_budget, which is non-convex and
+    can leave assets at zero weight although every budget is positive (see
+    docs/verification/solver_and_accounting_checks.md); it is kept so results from
+    the original pipeline can be reproduced and compared.
+    """
+    if solver == "exact":
+        return solve_risk_budget_convex(cov, target_budgets)
+    if solver == "slsqp":
+        return solve_risk_budget(cov, target_budgets)
+    raise ValueError(f"solver must be one of {RISK_BUDGET_SOLVERS}; got {solver!r}")
+
+
+def erc_baseline_weights(pooled_cov: np.ndarray, shrinkage: float = 0.10, solver: str = "exact") -> np.ndarray:
     """Baseline ERC: equal risk budgets against a single pooled covariance
     estimate, no regime separation."""
     cov = regularize_covariance(pooled_cov, shrinkage)
-    return solve_risk_budget(cov, target_budgets=None)
+    return risk_budget_weights(cov, target_budgets=None, solver=solver)
 
 
 def erc_regime_weights(
     state_covs: np.ndarray,
     regime_probs: np.ndarray,
     shrinkage: float = 0.10,
+    solver: str = "exact",
 ) -> np.ndarray:
     """Regime-aware ERC: equal risk budgets against a covariance built by
     mixing the per-state covariance estimates according to the current
@@ -154,4 +177,4 @@ def erc_regime_weights(
     """
     mixture_cov = np.tensordot(regime_probs, state_covs, axes=(0, 0))
     cov = regularize_covariance(mixture_cov, shrinkage)
-    return solve_risk_budget(cov, target_budgets=None)
+    return risk_budget_weights(cov, target_budgets=None, solver=solver)

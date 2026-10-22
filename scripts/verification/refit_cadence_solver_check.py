@@ -36,7 +36,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 import walkforward as wf  # noqa: E402
-from allocation_erc import regularize_covariance, solve_risk_budget_convex  # noqa: E402
 from constraints import ConstraintSpec  # noqa: E402
 from data import M2Calendar, PriceDataset, initial_window_length, load_risk_free_daily  # noqa: E402
 from evaluation import (  # noqa: E402
@@ -67,15 +66,13 @@ def main() -> None:
     raw_log = []  # (config, raw weights) in call order
     orig_base, orig_reg = wf.erc_baseline_weights, wf.erc_regime_weights
 
-    def base(pooled_cov, shrinkage=0.10):
-        w = (solve_risk_budget_convex(regularize_covariance(pooled_cov, shrinkage))
-             if args.solver == "exact" else orig_base(pooled_cov, shrinkage))
+    def base(pooled_cov, shrinkage=0.10, solver="exact"):
+        w = orig_base(pooled_cov, shrinkage, solver=solver)
         raw_log.append(("erc_baseline", w))
         return w
 
-    def reg(state_covs, probs, shrinkage=0.10):
-        w = (solve_risk_budget_convex(regularize_covariance(np.tensordot(probs, state_covs, axes=(0, 0)), shrinkage))
-             if args.solver == "exact" else orig_reg(state_covs, probs, shrinkage))
+    def reg(state_covs, probs, shrinkage=0.10, solver="exact"):
+        w = orig_reg(state_covs, probs, shrinkage, solver=solver)
         raw_log.append(("erc_regime", w))
         return w
 
@@ -87,7 +84,8 @@ def main() -> None:
             result = wf.run_walk_forward(
                 val_returns, n_states=3, initial_window=initial_window, alpha=0.97,
                 constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
-                close_to_open_returns=co, open_to_close_returns=oc, **kwargs,
+                close_to_open_returns=co, open_to_close_returns=oc,
+                risk_budget_solver=args.solver, **kwargs,
             )
             dates = [pd.Timestamp(e["date"]).date() for e in result.binding_constraints_history["erc_baseline"]]
             assert len(raw_log) == 2 * len(dates)

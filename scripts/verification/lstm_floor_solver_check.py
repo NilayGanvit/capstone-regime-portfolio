@@ -34,7 +34,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 import walkforward as wf  # noqa: E402
-from allocation_erc import solve_risk_budget_convex  # noqa: E402
 from constraints import ConstraintSpec  # noqa: E402
 from data import M2Calendar, PriceDataset, UNIVERSE, initial_window_length  # noqa: E402
 from evaluation import cagr, max_drawdown, sharpe_ratio  # noqa: E402
@@ -78,18 +77,11 @@ def run_one(floor, seed):
             cursor[v] += 1
             return b
 
-        def b2w(budgets_batch, cov):
-            if solver == "exact":
-                w = np.array([solve_risk_budget_convex(cov, b) for b in budgets_batch])
-            else:
-                w = orig_b2w(budgets_batch, cov)
-            return w
-
-        # which variant a b2w call belongs to: baseline is converted first, then regime, once per rebalance
+        # which variant a call belongs to: baseline is converted first, then regime, once per rebalance
         calls = {"n": 0}
 
-        def b2w_logged(budgets_batch, cov):
-            w = b2w(budgets_batch, cov)
+        def b2w_logged(budgets_batch, cov, solver="exact"):
+            w = orig_b2w(budgets_batch, cov, solver=solver)
             zero_weight["baseline" if calls["n"] % 2 == 0 else "regime"] += int((w < ZERO).any())
             calls["n"] += 1
             return w
@@ -101,7 +93,7 @@ def run_one(floor, seed):
                 constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30),
                 close_to_open_returns=co, open_to_close_returns=oc,
                 lstm_models={"baseline": Replay("baseline"), "regime": Replay("regime")},
-                lstm_feature_matrix=fm, lstm_seq_len=60,
+                lstm_feature_matrix=fm, lstm_seq_len=60, risk_budget_solver=solver,
             )
         finally:
             wf.predict_budgets, wf.budgets_to_weights_batch = orig_pred, orig_b2w

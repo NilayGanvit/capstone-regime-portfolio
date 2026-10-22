@@ -3,7 +3,7 @@ LSTM dynamic risk-budgeting allocator.
 
     features [+ regime probabilities] -> LSTM -> dense -> softmax
         -> ten-element risk-budget vector -> shared risk-budgeting
-        optimization layer (allocation_erc.solve_risk_budget) -> weights
+        optimization layer (allocation_erc.risk_budget_weights) -> weights
 
 This is the adaptation of Uysal, Li & Mulvey's (2021) model-based
 end-to-end risk-budgeting framework, replacing their shallow feed-forward
@@ -65,7 +65,7 @@ except ImportError:  # pragma: no cover - exercised only where cvxpylayers is ab
 import numpy as np
 import pandas as pd
 
-from allocation_erc import solve_risk_budget, regularize_covariance
+from allocation_erc import risk_budget_weights, regularize_covariance
 
 
 def require_torch() -> None:
@@ -270,42 +270,29 @@ def predict_budgets(model: "RiskBudgetLSTM", feature_window: np.ndarray) -> np.n
     return budgets[0].numpy()
 
 
-def budgets_to_weights_batch(budgets_batch: np.ndarray, cov: np.ndarray) -> np.ndarray:
-    """Apply the shared risk-budgeting optimization layer (from
-    allocation_erc.py) to a batch of learned budget vectors against a
-    given covariance estimate. This is the bridge between the LSTM's
-    softmax output (a differentiable operation, for training) and the
-    non-differentiable convex solve used for backtesting/execution -- the
-    same pattern Uysal et al. use, where gradients flow through a
-    differentiable approximation during training (see
-    `differentiable_risk_budget_layer` below) while backtest weights use
-    this exact solve.
+def budgets_to_weights_batch(budgets_batch: np.ndarray, cov: np.ndarray, solver: str = "exact") -> np.ndarray:
+    """Apply the shared risk-budgeting layer (allocation_erc.risk_budget_weights)
+    to a batch of learned budget vectors against a given covariance estimate.
+    This is the bridge between the LSTM's softmax output and the weights used for
+    backtesting/execution. Training differentiates through the same strictly convex
+    log-barrier problem (`differentiable_risk_budget_layer` below), so the default
+    exact solver implements the layer the model was trained through.
 
-    NOTE on a discovered gap between the two: solve_risk_budget's SLSQP
-    objective (squared error between risk-contribution *shares* and the
-    target budgets) is non-convex in w, and on the real ten-ETF
-    covariance it was observed (while building the differentiable layer
-    below) to converge to a local optimum with some assets pinned at
-    zero weight despite a strictly positive target budget -- e.g. plain
-    equal-budget ERC on the real initial-window covariance lands on
-    [0.11, 0.10, 0.06, 0.00, 0.00, 0.00, 0.32, 0.16, 0.16, 0.09] rather
-    than the near-equal-risk-share allocation the convex layer recovers
-    exactly for the same inputs. This is a pre-existing property of this
-    function (present before this training-loop work; it is what ERC's
-    walk-forward results are already built on), not something introduced
-    here, and is out of scope to fix in this pass -- flagged here because
-    it is exactly what motivated preferring the convex log-barrier
-    reformulation over an SLSQP-based differentiable layer.
+    solver="slsqp" selects the original non-convex solve. On the real ETF
+    covariances it frequently stops with assets pinned at zero weight although every
+    learned budget is positive (on 26-57% of final-test rebalances for the frozen
+    LSTMs), so it does not realise the learned budgets; it is kept for reproducing and
+    comparing the original results (docs/verification/solver_and_accounting_checks.md).
     """
-    return np.array([solve_risk_budget(cov, target_budgets=b) for b in budgets_batch])
+    return np.array([risk_budget_weights(cov, target_budgets=b, solver=solver) for b in budgets_batch])
 
 
 @lru_cache(maxsize=None)
 def differentiable_risk_budget_layer(n_assets: int) -> "CvxpyLayer":
-    """The differentiable convex risk-budgeting layer used only for LSTM
-    *training* gradients -- `budgets_to_weights_batch` above (via
-    allocation_erc.solve_risk_budget's exact SLSQP solve) is still what
-    produces the weights used for backtesting/evaluation.
+    """The differentiable convex risk-budgeting layer used for LSTM *training*
+    gradients. `budgets_to_weights_batch` above solves the same convex problem
+    exactly (allocation_erc.solve_risk_budget_convex, the default) to produce the
+    weights used for backtesting/evaluation, so training and evaluation agree.
 
     Reformulates risk budgeting as the convex problem
 

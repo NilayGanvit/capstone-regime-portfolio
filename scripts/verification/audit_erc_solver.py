@@ -21,8 +21,8 @@ Two separate questions:
      post-projection deviation in the frozen pipeline comes from the raw
      target, not from the projection.
 
-The solver inputs are captured from an actual ERC-only walk-forward (the same
-call run_real_data.py makes, without LSTM models), so nothing is reconstructed.
+The solver inputs are captured from an actual ERC-only walk-forward run with the
+original SLSQP solver (the pipeline as frozen), so nothing is reconstructed.
 Weights only: no returns or performance are computed here.
 
 Usage:
@@ -87,13 +87,13 @@ def main() -> None:
     solves, projections = [], []
     orig_base, orig_reg, orig_proj = wf.erc_baseline_weights, wf.erc_regime_weights, wf.project_onto_constraints
 
-    def base(pooled_cov, shrinkage=0.10):
-        w = orig_base(pooled_cov, shrinkage)
+    def base(pooled_cov, shrinkage=0.10, solver="slsqp"):
+        w = orig_base(pooled_cov, shrinkage, solver=solver)
         solves.append(("erc_baseline", regularize_covariance(pooled_cov, shrinkage), w))
         return w
 
-    def reg(state_covs, probs, shrinkage=0.10):
-        w = orig_reg(state_covs, probs, shrinkage)
+    def reg(state_covs, probs, shrinkage=0.10, solver="slsqp"):
+        w = orig_reg(state_covs, probs, shrinkage, solver=solver)
         solves.append(("erc_regime", regularize_covariance(np.tensordot(probs, state_covs, axes=(0, 0)), shrinkage), w))
         return w
 
@@ -106,7 +106,7 @@ def main() -> None:
     try:
         ds = PriceDataset.from_csv_dir(str(ROOT / "data" / "raw"))
         calendar = M2Calendar()
-        result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar))
+        result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar), risk_budget_solver="slsqp")
     finally:
         wf.erc_baseline_weights, wf.erc_regime_weights, wf.project_onto_constraints = orig_base, orig_reg, orig_proj
 

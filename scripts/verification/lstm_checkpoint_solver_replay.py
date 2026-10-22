@@ -38,7 +38,6 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import walkforward as wf  # noqa: E402
-from allocation_erc import solve_risk_budget_convex  # noqa: E402
 from allocation_lstm import RiskBudgetLSTM  # noqa: E402
 from data import M2Calendar, PriceDataset, initial_window_length, load_risk_free_daily, stage_labels  # noqa: E402
 from evaluation import cagr, max_drawdown, net_of_cost_returns, sharpe_ratio  # noqa: E402
@@ -74,17 +73,14 @@ def run_one(seed):
     for solver in ["slsqp", "exact"]:
         zero_flags = []
 
-        def b2w(budgets_batch, cov):
-            if solver == "exact":
-                w = np.array([solve_risk_budget_convex(cov, b) for b in budgets_batch])
-            else:
-                w = orig_b2w(budgets_batch, cov)
+        def b2w(budgets_batch, cov, solver="exact"):
+            w = orig_b2w(budgets_batch, cov, solver=solver)
             zero_flags.append(bool((w < ZERO).any()))
             return w
 
         wf.budgets_to_weights_batch = b2w
         try:
-            result = run_primary_walk_forward(ds, iw, models, fm)
+            result = run_primary_walk_forward(ds, iw, models, fm, risk_budget_solver=solver)
         finally:
             wf.budgets_to_weights_batch = orig_b2w
 

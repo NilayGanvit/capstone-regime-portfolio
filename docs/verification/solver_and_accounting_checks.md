@@ -1,5 +1,12 @@
 # Solver and portfolio-accounting checks
 
+Status: the exact solver is now the pipeline default (`risk_budget_solver="exact"` in
+`run_walk_forward`, `RISK_BUDGET_SOLVER` in `scripts/run_real_data.py`);
+`risk_budget_solver="slsqp"` reproduces the original pipeline for comparison. The
+verification scripts below that reproduce original results request `"slsqp"`
+explicitly. Sections 1-8 were measured on the original SLSQP pipeline and describe
+what changes when it is replaced.
+
 Scope: weights, turnover and the NAV ledger. The frozen reference run is not
 changed by anything here. Reproduce with `scripts/verification/audit_erc_solver.py`,
 `scripts/verification/erc_exact_solver_sensitivity.py`, and

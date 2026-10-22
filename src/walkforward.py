@@ -86,7 +86,9 @@ import pandas as pd
 from regime import GaussianHMM
 from densities import M0PooledStudentT, M1RegimeMixtureStudentT, fit_shared_nu, fit_per_regime_nu
 from reliability import ReliabilityTracker, blend_weights
-from allocation_erc import erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares
+from allocation_erc import (
+    erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares, RISK_BUDGET_SOLVERS,
+)
 from allocation_hrp import hrp_baseline_weights, hrp_regime_weights
 from allocation_lstm import predict_budgets, budgets_to_weights_batch, build_lstm_training_windows, train_lstm_allocator
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
@@ -146,6 +148,7 @@ def run_walk_forward(
     lstm_cov_window: int = 252,
     lstm_turnover_penalty: float = 0.1,
     include_hrp: bool = False,
+    risk_budget_solver: str = "exact",
     per_regime_nu: bool = False,
 ) -> WalkForwardResult:
     """Run the ERC baseline / regime / reliability-blend configurations
@@ -223,6 +226,12 @@ def run_walk_forward(
     Retraining repeatedly on an expanding window is real compute -- this
     is not free the way HMM EM refits are.
 
+    `risk_budget_solver` selects how risk budgets become weights for the ERC and
+    LSTM configurations: "exact" (default), the strictly convex log-barrier
+    solution, or "slsqp", the original non-convex solve that can leave assets at
+    zero weight although every budget is positive. "slsqp" exists to reproduce and
+    compare the original results; see docs/verification/solver_and_accounting_checks.md.
+
     `include_hrp`, if True, adds hrp_baseline/hrp_regime/hrp_blend configs
     (allocation_hrp.py) against the same covariances ERC uses -- a
     secondary robustness check (per M2's scope note) on whether ERC's
@@ -240,6 +249,8 @@ def run_walk_forward(
         constraint_spec = ConstraintSpec()
     have_open_data = close_to_open_returns is not None and open_to_close_returns is not None
 
+    if risk_budget_solver not in RISK_BUDGET_SOLVERS:
+        raise ValueError(f"risk_budget_solver must be one of {RISK_BUDGET_SOLVERS}; got {risk_budget_solver!r}")
     have_lstm = lstm_models is not None
     if have_lstm != (lstm_feature_matrix is not None):
         raise ValueError("lstm_models and lstm_feature_matrix must be given together, or neither.")
@@ -438,8 +449,8 @@ def run_walk_forward(
             # the weights themselves.
             covs_for_diagnostic = {"erc_baseline": baseline_cov, "erc_regime": regime_cov}
 
-            w_baseline = erc_baseline_weights(pooled_cov, shrinkage)
-            w_regime = erc_regime_weights(smoothed_state_covs, regime_probs_now, shrinkage)
+            w_baseline = erc_baseline_weights(pooled_cov, shrinkage, solver=risk_budget_solver)
+            w_regime = erc_regime_weights(smoothed_state_covs, regime_probs_now, shrinkage, solver=risk_budget_solver)
             w_blend_raw = blend_weights(w_regime, w_baseline, pi_t)
             w_equal = np.full(n_assets, 1.0 / n_assets)
 
@@ -513,8 +524,8 @@ def run_walk_forward(
                 # Same baseline_cov/regime_cov ERC's diagnostic already
                 # regularized above -- the risk-budgeting layer shared
                 # between ERC and the LSTM allocator (M2's architecture).
-                w_lstm_baseline = budgets_to_weights_batch(budgets_baseline[None, :], baseline_cov)[0]
-                w_lstm_regime = budgets_to_weights_batch(budgets_regime[None, :], regime_cov)[0]
+                w_lstm_baseline = budgets_to_weights_batch(budgets_baseline[None, :], baseline_cov, solver=risk_budget_solver)[0]
+                w_lstm_regime = budgets_to_weights_batch(budgets_regime[None, :], regime_cov, solver=risk_budget_solver)[0]
                 w_lstm_blend = blend_weights(w_lstm_regime, w_lstm_baseline, pi_t)
                 raw_targets.update({
                     "lstm_baseline": w_lstm_baseline,

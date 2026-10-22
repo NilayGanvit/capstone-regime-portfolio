@@ -118,13 +118,16 @@ LSTM_SEQ_LEN = 60
 LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
+RISK_BUDGET_SOLVER = "exact"  # budgets -> weights: the strictly convex solution; "slsqp" is the original solve, kept for comparison only
 LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
 
 
-def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_matrix=None):
+def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_matrix=None, risk_budget_solver=None):
     """The walk-forward every reported result comes from. Without LSTM models
     it returns the ERC and equal-weight configs only, which do not depend on
-    LSTM training and so reproduce exactly across environments."""
+    LSTM training and so reproduce exactly across environments.
+    `risk_budget_solver` defaults to RISK_BUDGET_SOLVER; "slsqp" reproduces the
+    original pipeline for comparison."""
     return run_walk_forward(
         ds.returns,
         n_states=LSTM_N_STATES,
@@ -136,6 +139,7 @@ def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_
         lstm_models=lstm_models,
         lstm_feature_matrix=lstm_feature_matrix,
         lstm_seq_len=LSTM_SEQ_LEN,
+        risk_budget_solver=risk_budget_solver or RISK_BUDGET_SOLVER,
     )
 
 
@@ -260,6 +264,7 @@ def main() -> None:
 
     calendar = M2Calendar()
     initial_window = initial_window_length(returns.index, calendar)
+    print(f"Risk-budget solver: {RISK_BUDGET_SOLVER}")
     print(f"Initial training window per M2's calendar: {initial_window} trading days "
           f"through {calendar.initial_training_end.date()}")
 

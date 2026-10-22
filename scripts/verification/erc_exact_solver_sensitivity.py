@@ -32,8 +32,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import walkforward as wf  # noqa: E402
-from allocation_erc import regularize_covariance, solve_risk_budget_convex  # noqa: E402
 from data import M2Calendar, PriceDataset, initial_window_length, load_risk_free_daily, stage_labels  # noqa: E402
 from evaluation import (  # noqa: E402
     cagr, max_drawdown, net_of_cost_returns, sharpe_ratio, stationary_bootstrap_rq_contrasts,
@@ -47,17 +45,9 @@ LSTM = ["lstm_baseline", "lstm_regime", "lstm_blend"]
 
 
 def main() -> None:
-    orig_base, orig_reg = wf.erc_baseline_weights, wf.erc_regime_weights
-    wf.erc_baseline_weights = lambda pooled_cov, shrinkage=0.10: solve_risk_budget_convex(
-        regularize_covariance(pooled_cov, shrinkage))
-    wf.erc_regime_weights = lambda state_covs, probs, shrinkage=0.10: solve_risk_budget_convex(
-        regularize_covariance(np.tensordot(probs, state_covs, axes=(0, 0)), shrinkage))
-    try:
-        ds = PriceDataset.from_csv_dir(str(ROOT / "data" / "raw"))
-        calendar = M2Calendar()
-        result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar))
-    finally:
-        wf.erc_baseline_weights, wf.erc_regime_weights = orig_base, orig_reg
+    ds = PriceDataset.from_csv_dir(str(ROOT / "data" / "raw"))
+    calendar = M2Calendar()
+    result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar), risk_budget_solver="exact")
 
     mask = (stage_labels(pd.DatetimeIndex(result.dates), calendar) == "final_test").to_numpy()
     dates = pd.DatetimeIndex(np.asarray(result.dates)[mask])

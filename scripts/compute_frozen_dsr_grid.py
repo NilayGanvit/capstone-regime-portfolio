@@ -66,7 +66,8 @@ def main() -> None:
     else:
         ds = PriceDataset.from_csv_dir(str(ROOT / "data" / "raw"))
         calendar = M2Calendar()
-        result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar))
+        # the archived ERC series come from the original SLSQP pipeline, so regenerate on that basis
+        result = run_primary_walk_forward(ds, initial_window_length(ds.returns.index, calendar), risk_budget_solver="slsqp")
         mask = (stage_labels(pd.DatetimeIndex(result.dates), calendar) == "final_test").to_numpy()
         net = {
             c: pd.Series(
