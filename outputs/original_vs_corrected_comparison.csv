@@ -1,0 +1,8 @@
+strategy,n_seeds,sharpe_original,sharpe_corrected,cagr_pct_original,cagr_pct_corrected,max_drawdown_pct_original,max_drawdown_pct_corrected
+ERC baseline,1,0.455,0.455,6.3,6.3,-20.2,-20.2
+ERC regime,1,0.462,0.455,6.4,6.3,-21.3,-21.0
+ERC blend,1,0.465,0.458,6.4,6.3,-21.3,-21.0
+Equal weight,1,0.608,0.608,8.8,8.8,-19.9,-19.9
+LSTM baseline,10,0.516 (0.131),0.455 (0.027),8.0 (1.7),6.6 (0.3),-23.8 (1.1),-22.5 (0.5)
+LSTM regime,10,0.614 (0.056),0.509 (0.056),8.7 (0.6),7.2 (0.6),-20.3 (0.9),-22.0 (0.9)
+LSTM blend,10,0.607 (0.063),0.505 (0.062),8.6 (0.7),7.1 (0.6),-20.4 (0.9),-22.1 (0.9)

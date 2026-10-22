@@ -1,0 +1,6 @@
+measure,original,corrected
+"LSTM regime effect on Sharpe, mean (sd)",+0.098 (0.159),+0.053 (0.074)
+Seeds with a positive regime effect,7/10,6/10
+Seeds whose 95% bootstrap interval excludes zero,2/10,0/10
+"Max-drawdown improvement, regime vs baseline LSTM, mean (pp)",+3.42,+0.50
+Seeds where the regime LSTM has the milder drawdown,10/10,6/10
