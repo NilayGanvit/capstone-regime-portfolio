@@ -101,7 +101,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels, load_risk_free_daily  # noqa: E402
-from lstm_training import train_lstm_variants  # noqa: E402
+from lstm_training import train_lstm_variants, save_checkpoint  # noqa: E402
+from run_provenance import git_state, write_run_manifest  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
 from constraints import ConstraintSpec, drift_weights  # noqa: E402
 from evaluation import (  # noqa: E402
@@ -119,6 +120,7 @@ LSTM_COV_WINDOW = 252
 LSTM_N_EPOCHS = 200
 LSTM_N_STATES = 3  # matches this script's own n_states for run_walk_forward
 RISK_BUDGET_SOLVER = "exact"  # budgets -> weights: the strictly convex solution; "slsqp" is the original solve, kept for comparison only
+LSTM_SEED = 123
 LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
 
 
@@ -247,6 +249,7 @@ def main() -> None:
     print("REAL-DATA RUN -- actual ten-ETF universe, 2007-04-11 onward")
     print("=" * 78)
 
+    code_state = git_state(Path(__file__).resolve().parents[1])  # before any output is written: what code is running
     out_dir = Path(__file__).resolve().parents[1] / "outputs"
     out_dir.mkdir(exist_ok=True)
 
@@ -272,10 +275,14 @@ def main() -> None:
           f"window only ({LSTM_N_EPOCHS} epochs each) ---")
     t0 = time.time()
     lstm_models, lstm_feature_matrix = train_lstm_variants(
-        returns, initial_window, budget_floor=LSTM_BUDGET_FLOOR, n_epochs=LSTM_N_EPOCHS,
+        returns, initial_window, seed=LSTM_SEED, budget_floor=LSTM_BUDGET_FLOOR, n_epochs=LSTM_N_EPOCHS,
         seq_len=LSTM_SEQ_LEN, cov_window=LSTM_COV_WINDOW, n_states=LSTM_N_STATES, verbose=True,
     )
     print(f"LSTM training runtime: {time.time() - t0:.1f}s\n")
+    checkpoint_dir = out_dir / "lstm_checkpoints"
+    checkpoint_dir.mkdir(exist_ok=True)
+    for variant, model in lstm_models.items():
+        save_checkpoint(model, checkpoint_dir / f"seed{LSTM_SEED}_{variant}.pt", seed=LSTM_SEED, variant=variant, epochs=LSTM_N_EPOCHS)
 
     t0 = time.time()
     result = run_primary_walk_forward(ds, initial_window, lstm_models, lstm_feature_matrix)
@@ -524,6 +531,23 @@ def main() -> None:
           "real_data_summary.csv reports gross performance. Net-of-cost results "
           "under the 5, 10, and 25 basis-point assumptions are reported in "
           "real_data_cost_sensitivity.csv; DSR is reported separately above.")
+
+    hashed = {f"data/{p.name}": p for p in sorted(data_dir.glob("*.csv"))}
+    hashed.update({f"checkpoint/{p.name}": p for p in sorted(checkpoint_dir.glob("*.pt"))})
+    hashed.update({f"output/{p.name}": p for p in sorted(out_dir.glob("real_data_*.csv"))})
+    write_run_manifest(
+        out_dir / "run_manifest.json", Path(__file__).resolve().parents[1],
+        settings={
+            "lstm_seed": LSTM_SEED, "lstm_budget_floor": LSTM_BUDGET_FLOOR, "lstm_epochs": LSTM_N_EPOCHS,
+            "lstm_seq_len": LSTM_SEQ_LEN, "lstm_cov_window": LSTM_COV_WINDOW, "n_states": LSTM_N_STATES,
+            "risk_budget_solver": RISK_BUDGET_SOLVER, "headline_fee_bps": 5.0, "fee_bps_sensitivity": FEE_BPS_SENSITIVITY,
+            "risk_free": "FRED DGS3MO, lagged one observation, compounded over 252 periods (data.build_risk_free_daily)",
+            "initial_training_end": str(calendar.initial_training_end.date()), "validation_end": str(calendar.validation_end.date()),
+            "final_test_end": str(calendar.final_test_end.date()),
+        },
+        hashed_files=hashed, git=code_state,
+    )
+    print(f"Saved run manifest to {out_dir / 'run_manifest.json'}")
 
 
 if __name__ == "__main__":

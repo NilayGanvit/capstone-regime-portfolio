@@ -13,6 +13,7 @@ see scripts/run_real_data.py's module docstring for why.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pandas as pd
 
@@ -72,3 +73,28 @@ def train_lstm_variants(
                   f"loss {result['loss_history'][0]:.4f} -> {result['loss_history'][-1]:.4f}")
         models[variant_name] = result["model"]
     return models, feature_matrix
+
+
+def save_checkpoint(model: RiskBudgetLSTM, path: Path, *, seed: int, variant: str, epochs: int) -> None:
+    """Save a trained allocator in the same layout as the archived frozen-reference
+    checkpoints (state dict plus the settings needed to rebuild it), so a run can be
+    replayed without retraining."""
+    import torch
+
+    torch.save({
+        "seed": seed, "variant": variant, "budget_floor": model.budget_floor, "epochs": epochs,
+        "n_features": model.lstm.input_size, "n_assets": model.n_assets, "hidden_size": model.lstm.hidden_size,
+        "state_dict": model.state_dict(),
+    }, path)
+
+
+def load_checkpoint(path: Path) -> RiskBudgetLSTM:
+    """Rebuild an allocator from save_checkpoint (or an archived checkpoint) for inference.
+    Loaded with weights_only=True, so only tensors and plain values are read."""
+    import torch
+
+    ck = torch.load(path, map_location="cpu", weights_only=True)
+    model = RiskBudgetLSTM(n_features=ck["n_features"], n_assets=ck["n_assets"], hidden_size=ck.get("hidden_size", 32),
+                           random_state=None, budget_floor=ck["budget_floor"])
+    model.load_state_dict(ck["state_dict"])
+    return model.double().eval()

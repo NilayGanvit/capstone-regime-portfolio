@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import walkforward as wf  # noqa: E402
-from allocation_lstm import RiskBudgetLSTM  # noqa: E402
+from lstm_training import load_checkpoint  # noqa: E402
 from data import M2Calendar, PriceDataset, initial_window_length, load_risk_free_daily, stage_labels  # noqa: E402
 from evaluation import cagr, max_drawdown, net_of_cost_returns, sharpe_ratio  # noqa: E402
 from features import build_feature_matrix  # noqa: E402
@@ -51,17 +51,9 @@ CONFIGS = ["lstm_baseline", "lstm_regime", "lstm_blend"]
 ZERO = 1e-4
 
 
-def load_model(path):
-    ck = torch.load(path, map_location="cpu", weights_only=True)
-    model = RiskBudgetLSTM(n_features=ck["n_features"], n_assets=ck["n_assets"], hidden_size=32,
-                           random_state=None, budget_floor=ck["budget_floor"])
-    model.load_state_dict(ck["state_dict"])
-    return model.double().eval()
-
-
 def run_one(seed):
     torch.set_num_threads(1)
-    models = {v: load_model(ARCHIVE / "ten_seed" / f"seed_{seed:02d}_{v}.pt") for v in ["baseline", "regime"]}
+    models = {v: load_checkpoint(ARCHIVE / "ten_seed" / f"seed_{seed:02d}_{v}.pt") for v in ["baseline", "regime"]}
     ds = PriceDataset.from_csv_dir(str(ROOT / "data" / "raw"))
     calendar = M2Calendar()
     iw = initial_window_length(ds.returns.index, calendar)
