@@ -46,6 +46,7 @@ from run_real_data import run_primary_walk_forward  # noqa: E402
 
 ARCHIVE = ROOT / "outputs" / "archive" / "frozen_reference_5pct_bb46b63"
 OUT = ROOT / "outputs"
+RETURNS_DIR = OUT / "ten_seed_corrected"  # per-seed daily net returns (5 bps) under both solvers, for the bootstrap and DSR
 CONFIGS = ["lstm_baseline", "lstm_regime", "lstm_blend"]
 ZERO = 1e-4
 
@@ -69,6 +70,8 @@ def run_one(seed):
     archived_metrics = pd.read_csv(ARCHIVE / "ten_seed" / f"seed_{seed:02d}_metrics.csv").set_index("config")
 
     rows = []
+    series, shared = {}, {}
+    final_dates = None
     orig_b2w = wf.budgets_to_weights_batch
     for solver in ["slsqp", "exact"]:
         zero_flags = []
@@ -88,11 +91,13 @@ def run_one(seed):
         stages = stage_labels(dates, calendar).to_numpy()
         final = stages == "final_test"
         rf = load_risk_free_daily(str(ARCHIVE / "data"), dates[final])
+        final_dates = dates[final]
         rebal = [pd.Timestamp(e["date"]) for e in result.binding_constraints_history["erc_baseline"]]
         rebal_final = np.array([d in set(dates[final]) for d in rebal])
         flags = np.array(zero_flags).reshape(-1, 2)  # per rebalance: [baseline, regime]
         for c in CONFIGS:
             net = net_of_cost_returns(result.dates, result.portfolio_returns[c], result.execution_history[c], 5.0)[final]
+            series[f"{solver}_{c}"] = net
             row = {"seed": seed, "solver": solver, "config": c,
                    "sharpe_excess": sharpe_ratio(net, risk_free=rf), "cagr": cagr(net), "max_drawdown": max_drawdown(net),
                    "zero_weight_share_baseline": float(flags[rebal_final, 0].mean()),
@@ -101,6 +106,15 @@ def run_one(seed):
                 row["max_abs_daily_diff_vs_archive"] = float(np.abs(net - archived_net[c].to_numpy()).max())
                 row["sharpe_diff_vs_archive"] = float(row["sharpe_excess"] - archived_metrics.loc[c, "sharpe_net_excess"])
             rows.append(row)
+        if seed == 0:  # ERC and equal weight do not depend on the LSTM, so one seed's run supplies them
+            for c in ["erc_baseline", "erc_regime", "erc_blend", "equal_weight"]:
+                shared[f"{solver}_{c}"] = net_of_cost_returns(result.dates, result.portfolio_returns[c], result.execution_history[c], 5.0)[final]
+    RETURNS_DIR.mkdir(exist_ok=True)
+    pd.DataFrame({"date": final_dates, "rf_daily": load_risk_free_daily(str(ARCHIVE / "data"), final_dates), **series}).to_csv(
+        RETURNS_DIR / f"seed_{seed:02d}_net_returns_5bps.csv", index=False, float_format="%.12g")
+    if shared:
+        pd.DataFrame({"date": final_dates, "rf_daily": load_risk_free_daily(str(ARCHIVE / "data"), final_dates), **shared}).to_csv(
+            RETURNS_DIR / "erc_equal_weight_net_returns_5bps.csv", index=False, float_format="%.12g")
     pd.DataFrame(rows).to_csv(OUT / f"lstm_checkpoint_solver_replay_shard_{seed}.csv", index=False, float_format="%.8g")
     print(f"done seed {seed}")
 

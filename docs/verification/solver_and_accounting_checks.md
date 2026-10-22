@@ -262,3 +262,31 @@ Readings, with the limits that apply:
   different number. Not covered: the seed-123 frozen run (no checkpoint is archived for
   it), the ERC-versus-LSTM bootstrap contrasts and DSR on exact-solver returns, and the
   45-seed Mac set.
+
+## 9. Research-question contrasts and DSR, per seed, on both solvers
+
+`scripts/verification/ten_seed_corrected_bootstrap.py` runs the pipeline's paired stationary
+bootstrap (2,000 replications, excess returns) on each archived seed's six strategy series,
+using the daily net returns saved in `outputs/ten_seed_corrected/` (the ERC and equal-weight
+series come from one ERC-only run since they do not depend on the LSTM). Point estimate mean
+(sd) across seeds 0-9; seeds whose 95% interval excludes zero; seeds with a positive estimate:
+
+| contrast | SLSQP (original) | exact (corrected) |
+|---|---|---|
+| RQ1 ERC regime effect | +0.0064; 0/10; same in all seeds | -0.0006; 0/10 |
+| RQ1 LSTM regime effect | +0.0981 (0.159); **2/10**; 7/10 positive | +0.0532 (0.074); **0/10**; 6/10 positive |
+| RQ2 difference-in-differences | +0.0917 (0.159); 1/10; 7/10 | +0.0537 (0.074); 0/10; 6/10 |
+| RQ3 ERC blend minus regime | +0.0034; 0/10 | +0.0035; 0/10 |
+| RQ3 LSTM blend minus regime | -0.0076 (0.012); 3/10; 4/10 | -0.0031 (0.013); 0/10; 3/10 |
+
+On the corrected basis no seed gives a regime-effect interval that excludes zero, for the
+LSTM or for the difference between LSTM and ERC. The ERC rows have zero spread because the
+ERC series does not depend on the seed. The seeds share one market history, so this shows
+how much the answer depends on LSTM initialisation, not independent evidence about the
+strategy.
+
+Regime LSTM DSR-L at the literal 7 trials, mean over seeds [min, max]: with the pooled
+empirical cross-trial variance 0.836 [0.762, 0.881] under SLSQP and 0.757 [0.659, 0.827]
+exact; with the conventional unit variance 0.019 and 0.009. As before, the variance
+assumption drives the reading. `outputs/ten_seed_corrected_bootstrap.csv` and
+`ten_seed_corrected_dsr.csv` hold the per-seed rows.
