@@ -259,8 +259,8 @@ Readings, with the limits that apply:
   it was level with it (0.614). It remains above ERC (0.46).
 - Ten seeds, one market history, one checkpoint family. Exact-solver weights are strictly
   positive, so these are more diversified portfolios, not the same portfolios with a
-  different number. Not covered: the seed-123 frozen run (no checkpoint is archived for
-  it), the ERC-versus-LSTM bootstrap contrasts and DSR on exact-solver returns, and the
+  different number. Not covered here: the seed-123 frozen run (its checkpoints are replayed in
+  `docs/colab_reference_run.md`), the ERC-versus-LSTM bootstrap contrasts and DSR on exact-solver returns, and the
   45-seed Mac set.
 
 ## 9. Research-question contrasts and DSR, per seed, on both solvers
