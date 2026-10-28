@@ -1,0 +1,31 @@
+fee_bps,scenario,contrast,effect
+5,Original opening costs,RQ1 ERC regime,-0.0005448360782073225
+5,Original opening costs,RQ1 LSTM regime,-0.10079169864203075
+5,Original opening costs,RQ3 ERC reliability,0.003458393926529524
+5,Original opening costs,RQ3 LSTM reliability,0.008245843697171795
+5,Original opening costs,RQ2 LSTM minus ERC regime,-0.10024686256382342
+5,Strict opening cap,RQ1 ERC regime,-0.00035985241961200565
+5,Strict opening cap,RQ1 LSTM regime,-0.10077740593002354
+5,Strict opening cap,RQ3 ERC reliability,0.0034584810747220196
+5,Strict opening cap,RQ3 LSTM reliability,0.008246135180407455
+5,Strict opening cap,RQ2 LSTM minus ERC regime,-0.10041755351041154
+10,Original opening costs,RQ1 ERC regime,-0.004828553093268073
+10,Original opening costs,RQ1 LSTM regime,-0.10505435532714091
+10,Original opening costs,RQ3 ERC reliability,0.0034398329854792298
+10,Original opening costs,RQ3 LSTM reliability,0.008050923194238446
+10,Original opening costs,RQ2 LSTM minus ERC regime,-0.10022580223387284
+10,Strict opening cap,RQ1 ERC regime,-0.004629873376981397
+10,Strict opening cap,RQ1 LSTM regime,-0.10503762284156104
+10,Strict opening cap,RQ3 ERC reliability,0.003439917010306659
+10,Strict opening cap,RQ3 LSTM reliability,0.008051208797520248
+10,Strict opening cap,RQ2 LSTM minus ERC regime,-0.10040774946457964
+25,Original opening costs,RQ1 ERC regime,-0.017692768194293662
+25,Original opening costs,RQ1 LSTM regime,-0.11785569328555368
+25,Original opening costs,RQ3 ERC reliability,0.0033839501171919473
+25,Original opening costs,RQ3 LSTM reliability,0.007464464341752075
+25,Original opening costs,RQ2 LSTM minus ERC regime,-0.10016292509126001
+25,Strict opening cap,RQ1 ERC regime,-0.01745291055667675
+25,Strict opening cap,RQ1 LSTM regime,-0.11783162881162718
+25,Strict opening cap,RQ3 ERC reliability,0.003384025607398422
+25,Strict opening cap,RQ3 LSTM reliability,0.007464733763023146
+25,Strict opening cap,RQ2 LSTM minus ERC regime,-0.10037871825495043

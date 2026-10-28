@@ -1,0 +1,8 @@
+config,max_absolute_return_difference,reproduced_within_1e8
+erc_baseline,5.551115123125783e-16,True
+erc_regime,4.440892098500626e-16,True
+erc_blend,4.440892098500626e-16,True
+equal_weight,6.661338147750939e-16,True
+lstm_baseline,5.551115123125783e-16,True
+lstm_regime,6.661338147750939e-16,True
+lstm_blend,5.551115123125783e-16,True

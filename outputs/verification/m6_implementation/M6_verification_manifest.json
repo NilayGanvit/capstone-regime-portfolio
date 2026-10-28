@@ -1,0 +1,22 @@
+{
+  "created_utc": "2026-10-28T15:48:33.836057+00:00",
+  "reference_commit": "6a6b12de19b567ba7c1feda10bd5423cd72b5e23",
+  "evaluation_period": "2019-01-01 to 2026-08-31",
+  "type": "Post-reference implementation and robustness verification",
+  "opening_turnover_violations": 17,
+  "maximum_opening_turnover": 0.3067147215141958,
+  "strict_cap_violations": 0,
+  "reference_outputs_modified": false,
+  "files": [
+    "M6_attribution_reconciliation.csv",
+    "M6_equity_reit_attribution.csv",
+    "M6_individual_etf_attribution.csv",
+    "M6_opening_turnover_violations.csv",
+    "M6_strict_cap_performance.csv",
+    "M6_strict_cap_reconciliation.csv",
+    "M6_strict_cap_rq_contrasts.csv",
+    "M6_strict_cap_summary.csv",
+    "M6_transaction_cost_sensitivity.csv",
+    "M6_turnover_comparison.csv"
+  ]
+}
