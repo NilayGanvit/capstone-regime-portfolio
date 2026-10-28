@@ -1,0 +1,140 @@
+==============================================================================
+REAL-DATA RUN -- actual ten-ETF universe, 2007-04-11 onward
+==============================================================================
+
+Loaded 4892 trading days, 2007-04-12 to 2026-09-21, tickers: ['SPY', 'EFA', 'EEM', 'IEF', 'TLT', 'LQD', 'HYG', 'GLD', 'DBC', 'VNQ']
+Open prices available -- rebalances execute at the next session's open per M2, not at the decision-day close.
+Risk-budget solver: exact
+Initial training window per M2's calendar: 1946 trading days through 2014-12-31
+
+--- Training LSTM baseline/regime allocators on the initial window only (200 epochs each) ---
+LSTM baseline: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM baseline: trained in 156.7s, loss -0.5639 -> -1.1813
+LSTM regime: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM regime: trained in 153.1s, loss -0.5726 -> -1.2290
+LSTM training runtime: 315.7s
+
+
+Walk-forward runtime: 676.4s over 2946 trading days, 7 configs
+
+--- VALIDATION (2015-01-01 -- 2018-12-31): development and specification-selection period [1006 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline     1006   0.228           0.384  0.0188       -0.0853    0.549   0.220        0.0068             0.1348
+erc_regime       1006   0.227           0.383  0.0189       -0.0942    0.552   0.200        0.0081             0.1234
+erc_blend        1006   0.227           0.383  0.0189       -0.0942    0.552   0.200        0.0081             0.1234
+equal_weight     1006   0.235           0.352  0.0222       -0.1331    0.510   0.167        0.0078             0.1000
+lstm_baseline    1006   0.397           0.543  0.0292       -0.0825    0.757   0.354        0.0107             0.1537
+lstm_regime      1006   0.343           0.483  0.0267       -0.0927    0.664   0.288        0.0130             0.1410
+lstm_blend       1006   0.343           0.483  0.0267       -0.0927    0.664   0.288        0.0130             0.1410
+
+--- EXPLORATORY HISTORICAL WALK-FORWARD (2019-01-01 -- 2026-08-31): non-anticipative evaluation, but not an independent holdout because this period was previously inspected [1926 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline     1926   0.457           0.799  0.0634       -0.2022    1.042   0.313        0.0076             0.1318
+erc_regime       1926   0.460           0.806  0.0634       -0.2096    1.046   0.303        0.0104             0.1246
+erc_blend        1926   0.464           0.809  0.0637       -0.2095    1.050   0.304        0.0104             0.1245
+equal_weight     1926   0.610           0.883  0.0881       -0.1995    1.074   0.442        0.0090             0.1001
+lstm_baseline    1926   0.546           0.861  0.0746       -0.2143    1.119   0.348        0.0112             0.1519
+lstm_regime      1926   0.450           0.765  0.0654       -0.2383    0.984   0.274        0.0142             0.1383
+lstm_blend       1926   0.458           0.774  0.0662       -0.2385    0.995   0.277        0.0143             0.1385
+Saved to /content/capstone_m6_final/outputs/real_data_summary.csv
+
+--- POST-EVALUATION PERIOD (post 2026-08-31): exploratory only, reported separately [14 days] ---
+               n_days  sharpe  sharpe_zero_rf    cagr  max_drawdown  sortino  calmar  avg_turnover  concentration_hhi
+config                                                                                                               
+erc_baseline       14  -1.890          -1.270 -0.0790       -0.0152   -2.422  -5.187        0.0065             0.1280
+erc_regime         14  -1.805          -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+erc_blend          14  -1.805          -1.183 -0.0739       -0.0151   -2.203  -4.893        0.0090             0.1174
+equal_weight       14  -0.978          -0.457 -0.0365       -0.0172   -0.867  -2.119        0.0078             0.1000
+lstm_baseline      14  -1.272          -0.737 -0.0550       -0.0180   -1.768  -3.063        0.0069             0.1487
+lstm_regime        14  -1.753          -1.193 -0.0825       -0.0180   -3.023  -4.595        0.0088             0.1306
+lstm_blend         14  -1.753          -1.193 -0.0825       -0.0180   -3.023  -4.595        0.0088             0.1306
+
+--- Paired stationary-bootstrap inference for RQ1-RQ3 (5-bp net returns) ---
+Saved bootstrap input returns to /content/capstone_m6_final/outputs/real_data_rq_net_returns_5bps.csv
+Saved bootstrap excess returns to /content/capstone_m6_final/outputs/real_data_rq_excess_returns_5bps.csv
+RQ1 ERC: regime - baseline: -0.001, 95% CI [-0.083, 0.078]
+RQ1 LSTM: regime - baseline: -0.101, 95% CI [-0.216, 0.014]
+RQ2 DiD: LSTM regime effect - ERC regime effect: -0.100, 95% CI [-0.193, -0.011]
+RQ3 ERC: blend - regime: 0.003, 95% CI [-0.000, 0.010]
+RQ3 LSTM: blend - regime: 0.008, 95% CI [-0.002, 0.027]
+Stationary bootstrap: 2000 replications per contrast, selection=automatic_contrast_specific, synchronization=within_contrast
+  RQ1 ERC: regime - baseline: expected block length=4.114
+  RQ1 LSTM: regime - baseline: expected block length=5.811
+  RQ2 DiD: LSTM regime effect - ERC regime effect: expected block length=19.358
+  RQ3 ERC: blend - regime: expected block length=55.331
+  RQ3 LSTM: blend - regime: expected block length=63.828
+Saved to /content/capstone_m6_final/outputs/real_data_rq_stationary_bootstrap.csv
+
+--- Transaction costs: 5/10/25 bps sensitivity, exploratory historical walk-forward period ---
+                       sharpe_net  sharpe_zero_rf  cagr_net
+config        fee_bps                                      
+erc_baseline  5.0           0.455           0.797    0.0632
+              10.0          0.454           0.796    0.0631
+              25.0          0.449           0.791    0.0627
+erc_regime    5.0           0.455           0.800    0.0629
+              10.0          0.449           0.794    0.0624
+              25.0          0.431           0.776    0.0609
+erc_blend     5.0           0.458           0.803    0.0632
+              10.0          0.452           0.797    0.0627
+              25.0          0.435           0.780    0.0612
+equal_weight  5.0           0.608           0.881    0.0879
+              10.0          0.607           0.880    0.0878
+              25.0          0.603           0.876    0.0873
+lstm_baseline 5.0           0.540           0.855    0.0741
+              10.0          0.534           0.849    0.0736
+              25.0          0.517           0.832    0.0719
+lstm_regime   5.0           0.439           0.755    0.0645
+              10.0          0.429           0.745    0.0635
+              25.0          0.399           0.715    0.0607
+lstm_blend    5.0           0.448           0.763    0.0652
+              10.0          0.438           0.753    0.0643
+              25.0          0.407           0.722    0.0614
+Saved to /content/capstone_m6_final/outputs/real_data_cost_sensitivity.csv
+
+--- Transaction log (exploratory historical walk-forward period, 5 bps) ---
+Saved per-config detail to /content/capstone_m6_final/outputs/real_data_transaction_log_<config>.csv
+
+--- Deflated Sharpe Ratio sensitivity grid, exploratory historical walk-forward period, net of 5 bps costs ---
+No single (sharpe_variance_across_trials, n_trials) pair is treated as primary -- Lopez de Prado & Porcu (2026) frame search-adjusted significance as depending jointly on effective trial count AND cross-trial dispersion, and recommend reporting a disclosed range over defensible assumptions when dependence among candidates (here, several trials are sequential refinements of the same underlying run) cannot be estimated directly -- which is the case here since no daily return path survives for any historical trial. See outputs/trial_candidate_sharpes.csv for the recovered per-candidate Sharpes and evaluation.build_dsr_sensitivity_scenarios for how the grid below is assembled.
+
+Variance scenarios (cross-trial Sharpe variance):
+  pooled_deduped_all_trials: 0.0345
+  pooled_including_redundant_rows: 0.0304
+  pooled_clean_sample_only: 0.0394
+  family_ad_hoc_pre_calendar_blend: 0.0390
+  family_clean_validation_only_2015_2018: 0.0000
+  family_clean_final_test_prespecified_secondary_check: 0.0116
+  conventional_unit_variance: 1.0000
+K scenarios (effective number of trials):
+  literal_logged_trials: 7
+  deduped_candidate_count: 9
+  coherent_search_families: 3
+Basis note: the observed Sharpes graded below are in excess of the T-bill rate, but the variance scenarios come from outputs/trial_candidate_sharpes.csv, recovered from commit messages and earlier CSVs on a zero-risk-free basis with no daily return paths to recompute them. DSR uses only the cross-trial VARIANCE, which a common shift leaves unchanged; candidates evaluated over different periods or volatilities would shift by different amounts, so read the variance scenarios as approximate on the excess basis.
+Each cell reports three representations side by side: DSR-L (deflated_sharpe_ratio, the original Bailey & Lopez de Prado 2014 formulation -- search-adjusted location mu_K plus the *observed series' own* skew/kurtosis-adjusted sampling SE s_c); DSR-LS,Gaussian (deflated_sharpe_ratio_ls_gaussian -- search-adjusted location AND scale (mu_K, sigma_K) under an iid Gaussian candidate-search model, Gaussian reference shape, no skew/kurtosis adjustment since sigma_K is a search-distribution property, not s_c); and DSR-LS,Gumbel (deflated_sharpe_ratio_ls_gumbel -- identical (mu_K, sigma_K), but the EVT-consistent standardized-Gumbel reference shape for this same Gaussian search model, per Lopez de Prado & Porcu 2026's calibration result that the Gaussian reference's limiting rejection rate is 6.583% against a nominal 5%, while the Gumbel reference is asymptotically exact). All three are different representations of the same search-adjusted null, not competing estimates.
+erc_baseline: net-of-cost Sharpe=0.455, DSR-L range=[0.002, 0.893], DSR-LS,Gaussian range=[0.043, 1.000], DSR-LS,Gumbel range=[0.006, 1.000] across 7x3 assumption grid
+erc_regime: net-of-cost Sharpe=0.455, DSR-L range=[0.002, 0.893], DSR-LS,Gaussian range=[0.042, 1.000], DSR-LS,Gumbel range=[0.006, 1.000] across 7x3 assumption grid
+erc_blend: net-of-cost Sharpe=0.458, DSR-L range=[0.002, 0.895], DSR-LS,Gaussian range=[0.043, 1.000], DSR-LS,Gumbel range=[0.006, 1.000] across 7x3 assumption grid
+equal_weight: net-of-cost Sharpe=0.608, DSR-L range=[0.007, 0.950], DSR-LS,Gaussian range=[0.071, 1.000], DSR-LS,Gumbel range=[0.025, 1.000] across 7x3 assumption grid
+lstm_baseline: net-of-cost Sharpe=0.540, DSR-L range=[0.004, 0.930], DSR-LS,Gaussian range=[0.057, 1.000], DSR-LS,Gumbel range=[0.014, 1.000] across 7x3 assumption grid
+lstm_regime: net-of-cost Sharpe=0.440, DSR-L range=[0.002, 0.885], DSR-LS,Gaussian range=[0.040, 1.000], DSR-LS,Gumbel range=[0.005, 1.000] across 7x3 assumption grid
+lstm_blend: net-of-cost Sharpe=0.448, DSR-L range=[0.002, 0.890], DSR-LS,Gaussian range=[0.041, 1.000], DSR-LS,Gumbel range=[0.005, 1.000] across 7x3 assumption grid
+Saved full grid to /content/capstone_m6_final/outputs/real_data_dsr_sensitivity_grid.csv
+Compare each config's printed ranges above against the variance/K scenarios: on the archived reference run, every recovered empirical-variance scenario (pooled or per-family) lands far above the conventional unit-variance scenario for ALL THREE representations, regardless of which K or reference shape is used -- a wide, config-independent swing driven almost entirely by the variance assumption, not by the choice between DSR-L/DSR-LS or between Gaussian/Gumbel. If that pattern holds here too, the DSR conclusion is NOT stable across this grid, which is itself the reportable finding, not any single cell.
+
+--- Reliability path pi_t (full walk-forward history) ---
+mean pi_t: 0.979  min: 0.000  max: 1.000
+
+--- Binding constraints on exploratory historical walk-forward rebalances ---
+erc_baseline: 92 exploratory-period rebalances, 0 with turnover binding, 0 with a weight bound binding
+erc_regime: 92 exploratory-period rebalances, 3 with turnover binding, 0 with a weight bound binding
+erc_blend: 92 exploratory-period rebalances, 3 with turnover binding, 0 with a weight bound binding
+equal_weight: 92 exploratory-period rebalances, 0 with turnover binding, 0 with a weight bound binding
+lstm_baseline: 92 exploratory-period rebalances, 7 with turnover binding, 12 with a weight bound binding
+lstm_regime: 92 exploratory-period rebalances, 8 with turnover binding, 20 with a weight bound binding
+lstm_blend: 92 exploratory-period rebalances, 9 with turnover binding, 20 with a weight bound binding
+Saved per-config detail to /content/capstone_m6_final/outputs/real_data_binding_constraints_<config>.csv
+
+The run reports all six primary configurations (ERC and LSTM, each baseline/regime/blend) plus equal_weight. The primary LSTM parameters are trained on the initial estimation window and remain fixed during the walk-forward evaluation, while the HMM, predictive-density models, and state covariance estimates are refit on their scheduled expanding-window cadence. The 2015-2018 period is used for development and specification selection. The 2019-2026 results are non-anticipative historical walk-forward evidence but are not an independent holdout because that period was previously inspected. real_data_summary.csv reports gross performance. Net-of-cost results under the 5, 10, and 25 basis-point assumptions are reported in real_data_cost_sensitivity.csv; DSR is reported separately above.
+Saved run manifest to /content/capstone_m6_final/outputs/run_manifest.json

@@ -1,0 +1,78 @@
+{
+  "created_utc": "2026-10-22T17:48:17.201627+00:00",
+  "environment": {
+    "machine": "x86_64",
+    "packages": {
+      "cvxpy": "1.9.3",
+      "cvxpylayers": "1.2.0",
+      "diffcp": "1.1.9",
+      "numpy": "2.1.3",
+      "pandas": "2.2.3",
+      "scikit-learn": "1.6.1",
+      "scipy": "1.16.3",
+      "torch": "2.11.0+cpu"
+    },
+    "platform": "Linux-6.6.122+-x86_64-with-glibc2.39",
+    "python": "3.13.16"
+  },
+  "git": {
+    "branch": "m6/final-pipeline",
+    "commit": "6a6b12de19b567ba7c1feda10bd5423cd72b5e23",
+    "uncommitted_files": []
+  },
+  "settings": {
+    "fee_bps_sensitivity": [
+      5.0,
+      10.0,
+      25.0
+    ],
+    "final_test_end": "2026-08-31",
+    "headline_fee_bps": 5.0,
+    "initial_training_end": "2014-12-31",
+    "lstm_budget_floor": 0.05,
+    "lstm_cov_window": 252,
+    "lstm_epochs": 200,
+    "lstm_seed": 123,
+    "lstm_seq_len": 60,
+    "n_states": 3,
+    "risk_budget_solver": "exact",
+    "risk_free": "FRED DGS3MO, lagged one observation, compounded over 252 periods (data.build_risk_free_daily)",
+    "validation_end": "2018-12-31"
+  },
+  "sha256": {
+    "checkpoint/seed123_baseline.pt": "aa328280e9389ca5cc9d27f36ae3530f86e7ec6e0043afcafd5253a2b7c607b2",
+    "checkpoint/seed123_regime.pt": "757819e84af76439dfec8766be5bb25d4f47b78edc6ac3337bf076e92596b616",
+    "data/DBC.csv": "91f41cc75f5a5c8386c80604a19b14606c5f969fadb0547fc385a5fb3086f8c6",
+    "data/EEM.csv": "4e510c770f81a88ddac883815a5b8ceb2e320eb8df94a6cf19ce02bd45896437",
+    "data/EFA.csv": "a83134bb793997bf947f3ccd9114c2c55f92607d6de23e2f4e67d9988b8c26ba",
+    "data/GLD.csv": "219a18c912cfce61223a8de76d0ab9578b2ce7ab89f56c37008522d77746d220",
+    "data/HYG.csv": "4971335eacd0f31118cf845e453859e8dc2445e3eb2ab2891035168f4eb53806",
+    "data/IEF.csv": "d3dd1b0441d6b25075a4e40b373c7339250254abe0315dea13002117de6068ae",
+    "data/LQD.csv": "5346d5545ea7f59f0b6566fedaf45880ca2eebd3d2e2098a2eb566b84bc8e07f",
+    "data/SPY.csv": "8a2763a4fd9efa36143c64377b7dd1546cc5f2d00b24b523e593905532824c4d",
+    "data/TLT.csv": "39b8f220ca191e0aaee32cc652e28a411ebe8ddf29e064d9433f74a3b46ea0c8",
+    "data/VNQ.csv": "99bb70759ef2ec9917347077c228390e55b965223cc1585efa2936424788f490",
+    "data/risk_free_DGS3MO_daily.csv": "1ffc52a149486fbfb96dfb674792582fd706a5574df27972325dede41d716b06",
+    "output/real_data_binding_constraints_equal_weight.csv": "08f932235a6e165fd3ff6354ef5f3686c73ace9b15c6e2fc5e2341647f2cd198",
+    "output/real_data_binding_constraints_erc_baseline.csv": "a1827502ff7ad954598de11f833efec1fa139d176aaff043937d804cc96b0de6",
+    "output/real_data_binding_constraints_erc_blend.csv": "86b5be6bf0cb9f149531a709cf10f86890044a559e924834253a9c43783bdc14",
+    "output/real_data_binding_constraints_erc_regime.csv": "02e0a4188e17f9986123f1a5ed0755805e045e2c5cc20d74bce10ff28bb67b45",
+    "output/real_data_binding_constraints_lstm_baseline.csv": "2e5404beb95bc22c34441fefd505c982ff122c6668e8d22411de45c4bb0fc27a",
+    "output/real_data_binding_constraints_lstm_blend.csv": "01eac54fb04f49389cf87152285efcc8e392309b39e02cc78abf1f6464a8a4dc",
+    "output/real_data_binding_constraints_lstm_regime.csv": "ff7c617faa33cabd18f03e5a57c6a80b5d8ddfdff2130ca08ecf0c6ceb0a9106",
+    "output/real_data_cost_sensitivity.csv": "afb5c0821e3e485ca8e41725b21e56c27d3bd091a6e0c9fd9e39190292419f37",
+    "output/real_data_dsr_sensitivity_grid.csv": "6e38dcbd04a65c82d7ed3c21c42a39086e3aa97de233b195a4d633daca76151c",
+    "output/real_data_pi_path.csv": "5134cb411f6c03fad14f0e0f896906fe9c9b88354820ebbe94279f7fd1ffbd5c",
+    "output/real_data_rq_excess_returns_5bps.csv": "29d4f10b2424b5c250108d508f9c50220eeca2d4142e7941456e0a023919fb88",
+    "output/real_data_rq_net_returns_5bps.csv": "b132a8218ca04269aa5aac83521dcf6650034a811597104296f5f4360e52ac6d",
+    "output/real_data_rq_stationary_bootstrap.csv": "3cc588df90971a3acf3059e42e26f266ff6e6cf7defffe1728d166be55151f05",
+    "output/real_data_summary.csv": "ac2aa5dd3654f7b561764b264eb9786eaa82b73a16972ada734d7389db7814c9",
+    "output/real_data_transaction_log_equal_weight.csv": "0d9fabf27238ce5cb326fc81ea2eefd2bda37e554d1d99f4e94637eb1d8d0f2a",
+    "output/real_data_transaction_log_erc_baseline.csv": "68e2f60f624cd4142178144e3ef321977a0f534fe7337b03b2f0563a39165a34",
+    "output/real_data_transaction_log_erc_blend.csv": "8389783c215eb56673a8dbe30e066d2448a5565301b20a78e4bd980177ac6b9b",
+    "output/real_data_transaction_log_erc_regime.csv": "55594227579fbc2f3d8bc89148c4e43544a63f5e59f831ea5bd2aede3367cc5f",
+    "output/real_data_transaction_log_lstm_baseline.csv": "1b8f4266999a0d821d678ddb3c98c74b39412d44674078948b3db58226bcfc50",
+    "output/real_data_transaction_log_lstm_blend.csv": "47623fc68482cbef6d88a391e4d7e7e0a9e2ce88f9c836042dbd8e11fd5bb18f",
+    "output/real_data_transaction_log_lstm_regime.csv": "c7ca92b79040022f9fe518db57f5d7214972e4a2efe827d8b25b910163931d60"
+  }
+}
