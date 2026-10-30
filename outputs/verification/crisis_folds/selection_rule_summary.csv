@@ -1,0 +1,7 @@
+candidate,worst_fold_delta,worst_fold,eligible,chosen
+equal_weight,0,,True,False
+erc_baseline,-0.0671539,A,True,False
+erc_regime,-0.0821866,A,True,False
+erc_blend,-0.0703287,A,True,False
+"lstm_baseline, seed-averaged",0.0544029,C,True,True
+"lstm_regime, seed-averaged",-0.0637243,A,True,False

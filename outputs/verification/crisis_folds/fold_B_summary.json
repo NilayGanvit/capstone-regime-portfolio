@@ -1,0 +1,14 @@
+{
+  "fold": "B",
+  "stage": 1,
+  "validation": "2010-01-04 to 2014-12-31",
+  "validation_days": 1258,
+  "checks_pass": true,
+  "spy_tlt_monthly_correlation": -0.6522789739872733,
+  "choices_holding": {
+    "refit: erc_regime quarterly minus monthly": false,
+    "refit: erc_regime quarterly minus no_refit": true,
+    "floor: baseline budget dispersion, 5% minus 2.5%": true,
+    "floor: regime budget dispersion, 5% minus 2.5%": true
+  }
+}

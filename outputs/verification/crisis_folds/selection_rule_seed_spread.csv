@@ -1,0 +1,7 @@
+candidate,fold,seed_median,seed_q25,seed_q75
+"lstm_baseline, seed-averaged",A,0.0667955,0.013759,0.176235
+"lstm_regime, seed-averaged",A,-0.0346122,-0.0586989,0.00760871
+"lstm_baseline, seed-averaged",B,0.0320313,-0.00673715,0.0961996
+"lstm_regime, seed-averaged",B,-0.00357642,-0.0660669,0.0913827
+"lstm_baseline, seed-averaged",C,0.0396785,-0.0278802,0.153799
+"lstm_regime, seed-averaged",C,0.174797,0.0951209,0.213686

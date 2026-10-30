@@ -1,0 +1,44 @@
+{
+  "proxy_hashes_match": {
+    "SPY_VFINX.csv": true,
+    "EFA_VGTSX.csv": true,
+    "EEM_VEIEX.csv": true,
+    "IEF_VFITX.csv": true,
+    "TLT_VUSTX.csv": true,
+    "LQD_VWESX.csv": true,
+    "HYG_VWEHX.csv": true,
+    "GLD_GCF.csv": true,
+    "DBC_SPGSCI.csv": true,
+    "VNQ_VGSIX.csv": true,
+    "DGS3MO.csv": true
+  },
+  "splice": {
+    "first_return": "2000-08-31",
+    "last_proxy_return": "2007-04-11",
+    "first_etf_return": "2007-04-12",
+    "rows": 6535,
+    "proxy_rows": 1643,
+    "etf_part_identical": true,
+    "proxy_part_identical": true,
+    "dates_strictly_increasing": true
+  },
+  "wiring_worst_daily_diff_vs_m6": {
+    "erc_baseline": 2.5760643618255585e-16,
+    "erc_regime": 2.5673907444456745e-16,
+    "erc_blend": 2.220446049250313e-16,
+    "equal_weight": 9.974659986866641e-17,
+    "lstm_baseline": 1.8084345813386415e-09,
+    "lstm_regime": 7.0387323243157815e-09,
+    "lstm_blend": 7.038725385096617e-09
+  },
+  "wiring_tolerance": {
+    "erc_baseline": 1e-08,
+    "erc_regime": 1e-08,
+    "erc_blend": 1e-08,
+    "equal_weight": 1e-08,
+    "lstm_baseline": 1e-07,
+    "lstm_regime": 1e-07,
+    "lstm_blend": 1e-07
+  },
+  "passes": true
+}

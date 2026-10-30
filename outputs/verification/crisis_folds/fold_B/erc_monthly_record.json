@@ -1,0 +1,11 @@
+{
+  "arm": "monthly",
+  "options": {
+    "refit_every_n_rebalances": 1
+  },
+  "initial_window": 2331,
+  "validation_days": 1258,
+  "first_day": "2010-01-04",
+  "last_day": "2014-12-31",
+  "refits": 60
+}

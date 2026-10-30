@@ -1,0 +1,5 @@
+job,arm,seed,floor,config,sharpe_5bps,sharpe_10bps,sharpe_25bps,cagr,max_drawdown,mean_turnover_per_rebalance,turnover_binding_rebalances,rebalances
+erc_monthly,monthly,,,erc_baseline,0.0176269,0.0151552,0.00774,0.00159872,-0.232773,0.0548599,1,24
+erc_monthly,monthly,,,erc_regime,0.022338,0.0144545,-0.00919213,0.00364721,-0.22184,0.155112,1,24
+erc_monthly,monthly,,,erc_blend,0.0280651,0.0221775,0.00451482,0.00433372,-0.219646,0.114541,1,24
+erc_monthly,monthly,,,equal_weight,0.0616318,0.0603628,0.056556,-0.00119477,-0.34579,0.0458227,0,24

@@ -1,0 +1,5 @@
+job,arm,seed,floor,config,sharpe_5bps,sharpe_10bps,sharpe_25bps,cagr,max_drawdown,mean_turnover_per_rebalance,turnover_binding_rebalances,rebalances
+erc_no_refit,no_refit,,,erc_baseline,0.236589,0.233744,0.225206,0.0193055,-0.0868459,0.0256348,1,48
+erc_no_refit,no_refit,,,erc_regime,0.235074,0.230208,0.215595,0.0191676,-0.0893675,0.0465212,1,48
+erc_no_refit,no_refit,,,erc_blend,0.250134,0.245228,0.230495,0.0199573,-0.0891382,0.0434339,1,48
+erc_no_refit,no_refit,,,equal_weight,0.23286,0.231151,0.226027,0.0220878,-0.133164,0.0206904,0,48

@@ -1,0 +1,13 @@
+comparison,fold,ci_low,ci_high,m6_2015_2018,holds,fold_at_5pct,fold_at_2.5pct,se,seeds_at_least_0
+refit: erc_regime quarterly minus monthly,-0.0428928,-0.167855,0.0228869,0.023,False,,,,
+refit: erc_regime quarterly minus no_refit,-0.0635934,-0.29965,0.181606,0.004,False,,,,
+"floor: baseline budget dispersion, 5% minus 2.5%",-0.290191,,,-0.207308,True,0.427137,0.717328,,
+"floor: lstm_baseline Sharpe, 5% minus 2.5% (seed-paired)",0.111033,,,,,,,0.0478122,7
+"floor: regime budget dispersion, 5% minus 2.5%",-0.254931,,,-0.340311,True,0.481676,0.736606,,
+"floor: lstm_regime Sharpe, 5% minus 2.5% (seed-paired)",-0.0367182,,,,,,,0.033581,3
+regime effect: erc_regime minus erc_baseline,-0.0150327,-0.280007,0.245146,-0.003206,,,,,
+regime effect: lstm_regime minus lstm_baseline (5% floor; 2015-2018 is seed 123),-0.147123,,,-0.058897,,,,0.0501172,3
+vs 1/N: erc_baseline,-0.0671539,-0.49353,0.33665,-0.008218,,,,,
+vs 1/N: erc_regime,-0.0821866,-0.649844,0.517934,-0.011424,,,,,
+"vs 1/N: lstm_baseline (5% floor, seed mean; 2015-2018 is seed 123)",0.0906372,,,0.154365,,,,0.0451358,8
+"vs 1/N: lstm_regime (5% floor, seed mean; 2015-2018 is seed 123)",-0.0564861,,,0.095468,,,,0.0356284,3

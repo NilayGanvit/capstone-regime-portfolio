@@ -1,0 +1,6 @@
+candidate,fold,sharpe,sharpe_1n,delta,ci_low,ci_high,block,chosen_on_folds_a_c,m6_final_test_delta
+erc_baseline,D,0.486309,0.607359,-0.12105,-0.368955,0.110845,4.68551,False,-0.152929
+erc_regime,D,0.490225,0.607359,-0.117133,-0.348391,0.10093,24.8849,False,-0.153494
+erc_blend,D,0.491908,0.607359,-0.115451,-0.348628,0.109307,25.5262,False,-0.150037
+"lstm_baseline, seed-averaged",D,0.543301,0.607359,-0.0640581,-0.302175,0.160974,4.16464,True,-0.0678515
+"lstm_regime, seed-averaged",D,0.572443,0.607359,-0.0349164,-0.251907,0.184869,11.6684,False,-0.168637

@@ -1,0 +1,4 @@
+job,arm,seed,floor,config,sharpe_5bps,sharpe_10bps,sharpe_25bps,cagr,max_drawdown,mean_turnover_per_rebalance,turnover_binding_rebalances,rebalances
+seed_06_floor0.025,,6,0.025,lstm_baseline,0.71227,0.69763,0.653571,0.0526198,-0.118073,0.187349,23,60
+seed_06_floor0.025,,6,0.025,lstm_regime,0.748212,0.73184,0.682574,0.0520541,-0.120944,0.19379,18,60
+seed_06_floor0.025,,6,0.025,equal_weight,0.80163,0.800016,0.795172,0.0705811,-0.0908143,0.0244434,0,60

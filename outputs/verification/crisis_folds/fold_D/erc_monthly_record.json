@@ -1,0 +1,11 @@
+{
+  "arm": "monthly",
+  "options": {
+    "refit_every_n_rebalances": 1
+  },
+  "initial_window": 4595,
+  "validation_days": 1926,
+  "first_day": "2019-01-02",
+  "last_day": "2026-08-31",
+  "refits": 92
+}

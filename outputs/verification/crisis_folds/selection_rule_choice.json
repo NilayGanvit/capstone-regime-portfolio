@@ -1,0 +1,8 @@
+{
+  "choice": "lstm_baseline, seed-averaged",
+  "folds": [
+    "A",
+    "B",
+    "C"
+  ]
+}

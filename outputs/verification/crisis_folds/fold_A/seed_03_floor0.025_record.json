@@ -1,0 +1,9 @@
+{
+  "seed": 3,
+  "floor": "0.025",
+  "initial_window": 1826,
+  "validation_days": 505,
+  "first_day": "2008-01-02",
+  "last_day": "2009-12-31",
+  "refits": 8
+}
