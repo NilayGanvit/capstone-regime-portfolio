@@ -1,0 +1,48 @@
+{
+  "kind": "ensemble",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "bootstrap": {
+    "validation 2015-2018: lstm_asset_regime minus lstm_regime": {
+      "point_estimate": 0.02060178211309438,
+      "ci_low": -0.21681733889840613,
+      "ci_high": 0.26066880493872285,
+      "ci_level": 0.95,
+      "expected_block_length": 1.6125528017850532,
+      "block_length_source": "automatic",
+      "bootstrap_method": "stationary"
+    },
+    "validation 2015-2018: lstm_asset_regime minus lstm_baseline": {
+      "point_estimate": 0.004226008364325851,
+      "ci_low": -0.17864398748094376,
+      "ci_high": 0.1886390576450187,
+      "ci_level": 0.95,
+      "expected_block_length": 7.626097961933982,
+      "block_length_source": "automatic",
+      "bootstrap_method": "stationary"
+    },
+    "final test 2019-2026 (exploratory): lstm_asset_regime minus lstm_regime": {
+      "point_estimate": 0.04220505355279669,
+      "ci_low": -0.09562737675812857,
+      "ci_high": 0.18717126358384711,
+      "ci_level": 0.95,
+      "expected_block_length": 1.0,
+      "block_length_source": "automatic",
+      "bootstrap_method": "stationary"
+    },
+    "final test 2019-2026 (exploratory): lstm_asset_regime minus lstm_baseline": {
+      "point_estimate": 0.07096495583960516,
+      "ci_low": -0.0664364094065039,
+      "ci_high": 0.21189896067181072,
+      "ci_level": 0.95,
+      "expected_block_length": 3.5899173417535297,
+      "block_length_source": "automatic",
+      "bootstrap_method": "stationary"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+kind,label,stage,config,sharpe_5bps,sharpe_10bps,sharpe_25bps,cagr,max_drawdown,mean_turnover_per_rebalance
+ensemble,0-4,validation 2015-2018,lstm_asset_regime,0.391564,0.37727,0.334355,0.0292281,-0.0864897,0.140446
+ensemble,0-4,validation 2015-2018,lstm_baseline,0.387338,0.378169,0.350652,0.0285682,-0.0810586,0.0853959
+ensemble,0-4,validation 2015-2018,lstm_regime,0.370962,0.359941,0.326854,0.0285379,-0.0955381,0.111942
+ensemble,0-4,validation 2015-2018,erc_asset_regime,0.24004,0.230358,0.201307,0.0194537,-0.0963894,0.0857157
+ensemble,0-4,validation 2015-2018,erc_baseline,0.224642,0.221713,0.21292,0.0186311,-0.085633,0.0262049
+ensemble,0-4,validation 2015-2018,erc_regime,0.221436,0.215508,0.197723,0.0185623,-0.0946458,0.0524837
+ensemble,0-4,validation 2015-2018,equal_weight,0.23286,0.231151,0.226027,0.0220878,-0.133164,0.0206904
+ensemble,0-4,final test 2019-2026 (exploratory),lstm_asset_regime,0.533208,0.51983,0.47963,0.0719494,-0.205029,0.188696
+ensemble,0-4,final test 2019-2026 (exploratory),lstm_baseline,0.462243,0.456213,0.43811,0.0669603,-0.223173,0.0887531
+ensemble,0-4,final test 2019-2026 (exploratory),lstm_regime,0.491003,0.479908,0.446577,0.0693554,-0.220852,0.162386
+ensemble,0-4,final test 2019-2026 (exploratory),erc_asset_regime,0.437372,0.427758,0.39888,0.0610874,-0.205838,0.127376
+ensemble,0-4,final test 2019-2026 (exploratory),erc_baseline,0.455197,0.453679,0.449123,0.0632463,-0.202328,0.0202777
+ensemble,0-4,final test 2019-2026 (exploratory),erc_regime,0.454632,0.448811,0.431332,0.062924,-0.210106,0.0786824
+ensemble,0-4,final test 2019-2026 (exploratory),equal_weight,0.608126,0.606734,0.602558,0.0879485,-0.199486,0.0232765

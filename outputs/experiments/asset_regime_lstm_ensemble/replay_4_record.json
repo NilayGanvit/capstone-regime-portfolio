@@ -1,0 +1,20 @@
+{
+  "kind": "replay",
+  "seeds": [
+    4
+  ],
+  "check": {
+    "lstm_worst_diff_vs_trial20": {
+      "lstm_asset_regime": 4.4889413859661165e-08,
+      "lstm_baseline": 2.636035840997142e-09,
+      "lstm_regime": 2.9681845314932787e-09
+    },
+    "erc_worst_diff_vs_m6": {
+      "erc_baseline": 2.5760643618255585e-16,
+      "erc_regime": 2.5673907444456745e-16,
+      "erc_blend": 2.220446049250313e-16,
+      "equal_weight": 9.974659986866641e-17
+    },
+    "passes": true
+  }
+}
