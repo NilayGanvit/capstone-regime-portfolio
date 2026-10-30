@@ -11,3 +11,7 @@ venv/
 # tracked.
 data/raw/*
 !data/raw/.gitkeep
+
+# Long-history proxy data, pulled by scripts/experiments/fetch_proxy_data.py;
+# provenance and hashes are tracked in outputs/experiments/proxy_data_manifest.json.
+data/proxy/*
