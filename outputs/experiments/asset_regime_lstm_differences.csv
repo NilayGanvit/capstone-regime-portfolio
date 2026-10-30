@@ -1,0 +1,13 @@
+stage,comparison,fee_bps,mean,se,seeds_at_least_0
+validation 2015-2018,lstm_asset_regime minus lstm_baseline,5,0.0433193,0.046258,7
+validation 2015-2018,lstm_asset_regime minus lstm_baseline,10,0.0383404,0.0459777,7
+validation 2015-2018,lstm_asset_regime minus lstm_baseline,25,0.0233709,0.0454347,5
+validation 2015-2018,lstm_asset_regime minus lstm_regime,5,0.0508907,0.0265077,5
+validation 2015-2018,lstm_asset_regime minus lstm_regime,10,0.0481385,0.0264508,5
+validation 2015-2018,lstm_asset_regime minus lstm_regime,25,0.0398627,0.0264181,5
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_baseline,5,0.0322864,0.0280371,4
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_baseline,10,0.0247861,0.0285841,4
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_baseline,25,0.0022294,0.0304235,4
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_regime,5,0.0389587,0.0267345,8
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_regime,10,0.0371907,0.0268722,8
+final test 2019-2026 (exploratory),lstm_asset_regime minus lstm_regime,25,0.0318703,0.0273606,8

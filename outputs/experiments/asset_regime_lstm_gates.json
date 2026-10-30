@@ -1,0 +1,111 @@
+{
+  "checks_pass": true,
+  "checks": {
+    "0": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true,
+      "lstm_unchanged_without_new_network": {
+        "erc_baseline": true,
+        "erc_regime": true,
+        "erc_blend": true,
+        "equal_weight": true,
+        "erc_asset_regime": true,
+        "lstm_baseline": true,
+        "lstm_regime": true,
+        "lstm_blend": true
+      }
+    },
+    "1": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "2": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "3": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "4": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "5": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "6": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "7": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "8": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    },
+    "9": {
+      "worst_daily_diff_vs_m6_archive": {
+        "erc_baseline": 2.5760643618255585e-16,
+        "erc_regime": 2.5673907444456745e-16,
+        "erc_blend": 2.220446049250313e-16,
+        "equal_weight": 9.974659986866641e-17
+      },
+      "erc_passes": true
+    }
+  },
+  "gates": {
+    "G1 mean Sharpe >= lstm_baseline": true,
+    "G2 mean Sharpe >= lstm_regime": true,
+    "G3 mean drawdown within 2 pp of lstm_baseline": true
+  },
+  "passes": true
+}

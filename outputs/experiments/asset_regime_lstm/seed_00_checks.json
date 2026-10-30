@@ -1,0 +1,19 @@
+{
+  "worst_daily_diff_vs_m6_archive": {
+    "erc_baseline": 2.5760643618255585e-16,
+    "erc_regime": 2.5673907444456745e-16,
+    "erc_blend": 2.220446049250313e-16,
+    "equal_weight": 9.974659986866641e-17
+  },
+  "erc_passes": true,
+  "lstm_unchanged_without_new_network": {
+    "erc_baseline": true,
+    "erc_regime": true,
+    "erc_blend": true,
+    "equal_weight": true,
+    "erc_asset_regime": true,
+    "lstm_baseline": true,
+    "lstm_regime": true,
+    "lstm_blend": true
+  }
+}
