@@ -9,6 +9,8 @@ docs/verification/crisis_folds_preregistration.md.
   --fold A --seed N --floor F    trains the baseline and regime LSTMs for seed N at budget floor F on the
                                  fold's training window, then runs the fold
   --fold A --merge               the pre-registered comparisons, beside their 2015-2018 values
+  --select                       the selection rule against 1/N across folds A-C
+                                 (docs/verification/crisis_folds_selection_rule_preregistration.md)
 
 Usage:
     python scripts/verification/run_crisis_folds.py --check
@@ -31,6 +33,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
 from data import M2Calendar, PriceDataset, UNIVERSE, initial_window_length, load_risk_free_daily, stage_labels  # noqa: E402
 from evaluation import block_bootstrap_diff_ci, cagr, max_drawdown, net_of_cost_returns, sharpe_ratio  # noqa: E402
+from fold_selection import BENCHMARK, benchmark_relative_choice  # noqa: E402
 from proxy_data import load_proxy_sample, spliced_returns  # noqa: E402
 from run_provenance import file_sha256  # noqa: E402
 from run_real_data import LSTM_COV_WINDOW, LSTM_N_EPOCHS, LSTM_N_STATES, LSTM_SEQ_LEN, run_primary_walk_forward  # noqa: E402
@@ -51,6 +54,16 @@ EW_NET = ROOT / "outputs" / "frozen_reference_equal_weight_net_returns_5bps.csv"
 MANIFEST = ROOT / "outputs" / "experiments" / "proxy_data_manifest.json"
 REFIT_REF = ROOT / "outputs" / "refit_cadence_validation_comparison.csv"
 FLOOR_REF = ROOT / "outputs" / "bounded_softmax_stage1_stability_summary.csv"
+# Selection-rule candidates in order of simplicity: name -> the (job, column) net-return series
+# whose daily mean is the candidate's return (several entries: the seed average)
+CANDIDATES = {
+    "equal_weight": [("erc_quarterly", "equal_weight")],
+    "erc_baseline": [("erc_quarterly", "erc_baseline")],
+    "erc_regime": [("erc_quarterly", "erc_regime")],
+    "erc_blend": [("erc_quarterly", "erc_blend")],
+    "lstm_baseline, seed-averaged": [(f"seed_{s:02d}_floor0.05", "lstm_baseline") for s in SEEDS],
+    "lstm_regime, seed-averaged": [(f"seed_{s:02d}_floor0.05", "lstm_regime") for s in SEEDS],
+}
 
 
 def etf_data(ds):
@@ -263,6 +276,60 @@ def merge(fold) -> None:
     print(seeds.groupby(["floor", "config"])[cols].mean().round(4).to_string())
 
 
+def candidate_returns(fold):
+    """Each candidate's daily 5 bps net return over the fold's validation period, and its seeds'
+    returns where it has several."""
+    d = OUT / f"fold_{fold}"
+    cache, out, members = {}, {}, {}
+    for name, series in CANDIDATES.items():
+        cols = []
+        for job, col in series:
+            if job not in cache:
+                cache[job] = pd.read_csv(d / f"{job}_net_returns_5bps.csv", index_col=0, parse_dates=True)
+            cols.append(cache[job][col])
+        frame = pd.concat(cols, axis=1)
+        out[name] = frame.mean(axis=1)
+        if len(cols) > 1:
+            members[name] = frame
+    idx = out[BENCHMARK].index
+    val = idx[(stage_labels(idx, fold_calendar(fold)) == "validation").to_numpy()]
+    return {k: v.loc[val] for k, v in out.items()}, {k: v.loc[val] for k, v in members.items()}, val
+
+
+def select() -> None:
+    rows, seed_rows = [], []
+    for fold in FOLDS:
+        ret, members, val = candidate_returns(fold)
+        rf = load_risk_free_daily(str(RF_DIR), val)
+        ew = ret[BENCHMARK].to_numpy() - rf
+        sh_ew = sharpe_ratio(ret[BENCHMARK].to_numpy(), risk_free=rf)
+        for name, r in ret.items():
+            if name == BENCHMARK:
+                continue
+            ci = block_bootstrap_diff_ci(r.to_numpy() - rf, ew, n_boot=2000, random_state=0)
+            rows.append({"candidate": name, "fold": fold, "delta": sharpe_ratio(r.to_numpy(), risk_free=rf) - sh_ew,
+                         "ci_low": ci["ci_low"], "ci_high": ci["ci_high"], "block": ci["expected_block_length"]})
+        for name, frame in members.items():
+            per_seed = np.array([sharpe_ratio(frame[c].to_numpy(), risk_free=rf) - sh_ew for c in frame.columns])
+            seed_rows.append({"candidate": name, "fold": fold, "seed_median": float(np.median(per_seed)),
+                              "seed_q25": float(np.quantile(per_seed, 0.25)), "seed_q75": float(np.quantile(per_seed, 0.75))})
+    table = pd.DataFrame(rows)
+    summary, choice = benchmark_relative_choice(table, list(CANDIDATES))
+    seeds = pd.DataFrame(seed_rows)
+    table.to_csv(OUT / "selection_rule_folds.csv", index=False, float_format="%.6g")
+    summary.to_csv(OUT / "selection_rule_summary.csv", index=False, float_format="%.6g")
+    seeds.to_csv(OUT / "selection_rule_seed_spread.csv", index=False, float_format="%.6g")
+    (OUT / "selection_rule_choice.json").write_text(json.dumps({"choice": choice, "folds": list(FOLDS)}, indent=2))
+    pd.set_option("display.width", 220)
+    print("Sharpe minus 1/N by fold (5 bps net excess), 95% interval:")
+    print(table.pivot(index="candidate", columns="fold", values=["delta", "ci_low", "ci_high"]).round(3).to_string())
+    print("\nRule:")
+    print(summary.round(3).to_string(index=False))
+    print("\nSeed spread of each seed's own difference:")
+    print(seeds.round(3).to_string(index=False))
+    print("\nChoice:", choice)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -271,9 +338,12 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int)
     ap.add_argument("--floor", choices=list(FLOORS))
     ap.add_argument("--merge", action="store_true")
+    ap.add_argument("--select", action="store_true")
     a = ap.parse_args()
     if a.check:
         check()
+    elif a.select:
+        select()
     elif a.merge:
         merge(a.fold)
     elif a.erc:
