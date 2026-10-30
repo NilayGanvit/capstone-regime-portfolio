@@ -11,6 +11,8 @@ docs/verification/crisis_folds_preregistration.md.
   --fold A --merge               the pre-registered comparisons, beside their 2015-2018 values
   --select                       the selection rule against 1/N across folds A-C
                                  (docs/verification/crisis_folds_selection_rule_preregistration.md)
+  --holdout                      fold D (2019-2026): every candidate against 1/N, the folds A-C choice
+                                 marked (docs/verification/crisis_fold_d_preregistration.md)
 
 Usage:
     python scripts/verification/run_crisis_folds.py --check
@@ -41,7 +43,13 @@ from run_real_data import LSTM_COV_WINDOW, LSTM_N_EPOCHS, LSTM_N_STATES, LSTM_SE
 OUT = ROOT / "outputs" / "verification" / "crisis_folds"
 PROXY = ROOT / "data" / "proxy"
 RAW = ROOT / "data" / "raw"
-FOLDS = {"A": ("2007-12-31", "2009-12-31"), "B": ("2009-12-31", "2014-12-31"), "C": ("2014-12-31", "2018-12-31")}
+FOLDS = {"A": ("2007-12-31", "2009-12-31"), "B": ("2009-12-31", "2014-12-31"), "C": ("2014-12-31", "2018-12-31"),
+         "D": ("2018-12-31", "2026-08-31")}
+SELECTION_FOLDS = ["A", "B", "C"]  # fold D never enters the selection rule
+HOLDOUT_FOLD = "D"
+# M6's own 2019-2026 results for the candidates that exist there (seed 123 for the LSTMs)
+M6_COUNTERPART = {"erc_baseline": "erc_baseline", "erc_regime": "erc_regime", "erc_blend": "erc_blend",
+                  "lstm_baseline, seed-averaged": "lstm_baseline", "lstm_regime, seed-averaged": "lstm_regime"}
 SEEDS = list(range(10))
 FLOORS = {"0.05": 0.05, "0.025": 0.025}
 ERC_ARMS = {"quarterly": {}, "monthly": {"refit_every_n_rebalances": 1}, "no_refit": {"refit_at_rebalance": False}}
@@ -296,9 +304,54 @@ def candidate_returns(fold):
     return {k: v.loc[val] for k, v in out.items()}, {k: v.loc[val] for k, v in members.items()}, val
 
 
+def fold_rows(fold):
+    """Every candidate's Sharpe minus 1/N's on the fold, with its bootstrap interval, and the seed
+    spread of each seed's own difference for candidates with several seeds."""
+    rows, seed_rows = [], []
+    ret, members, val = candidate_returns(fold)
+    rf = load_risk_free_daily(str(RF_DIR), val)
+    ew = ret[BENCHMARK].to_numpy() - rf
+    sh_ew = sharpe_ratio(ret[BENCHMARK].to_numpy(), risk_free=rf)
+    for name, r in ret.items():
+        if name == BENCHMARK:
+            continue
+        ci = block_bootstrap_diff_ci(r.to_numpy() - rf, ew, n_boot=2000, random_state=0)
+        rows.append({"candidate": name, "fold": fold, "sharpe": sharpe_ratio(r.to_numpy(), risk_free=rf), "sharpe_1n": sh_ew,
+                     "delta": sharpe_ratio(r.to_numpy(), risk_free=rf) - sh_ew,
+                     "ci_low": ci["ci_low"], "ci_high": ci["ci_high"], "block": ci["expected_block_length"]})
+    for name, frame in members.items():
+        per_seed = np.array([sharpe_ratio(frame.iloc[:, i].to_numpy(), risk_free=rf) - sh_ew for i in range(frame.shape[1])])
+        seed_rows.append({"candidate": name, "fold": fold, "seed_median": float(np.median(per_seed)),
+                          "seed_q25": float(np.quantile(per_seed, 0.25)), "seed_q75": float(np.quantile(per_seed, 0.75))})
+    return rows, seed_rows
+
+
+def holdout() -> None:
+    choice = json.loads((OUT / "selection_rule_choice.json").read_text())["choice"]
+    rows, seed_rows = fold_rows(HOLDOUT_FOLD)
+    table = pd.DataFrame(rows)
+    table["chosen_on_folds_a_c"] = table.candidate == choice
+    dates = pd.DatetimeIndex(pd.read_csv(OUT / f"fold_{HOLDOUT_FOLD}" / "erc_quarterly_net_returns_5bps.csv", index_col=0, parse_dates=True).index)
+    dates = dates[(stage_labels(dates, fold_calendar(HOLDOUT_FOLD)) == "validation").to_numpy()]
+    m6 = pd.concat([pd.read_csv(M6 / "csv" / "real_data_rq_net_returns_5bps.csv", index_col=0, parse_dates=True),
+                    pd.read_csv(EW_NET, index_col=0, parse_dates=True)], axis=1).reindex(dates)
+    rf = load_risk_free_daily(str(RF_DIR), dates)
+    m6_ew = sharpe_ratio(m6["equal_weight"].to_numpy(), risk_free=rf)
+    table["m6_final_test_delta"] = [sharpe_ratio(m6[M6_COUNTERPART[c]].to_numpy(), risk_free=rf) - m6_ew if c in M6_COUNTERPART else np.nan
+                                    for c in table.candidate]
+    table.to_csv(OUT / "fold_D_holdout.csv", index=False, float_format="%.6g")
+    pd.DataFrame(seed_rows).to_csv(OUT / "fold_D_holdout_seed_spread.csv", index=False, float_format="%.6g")
+    pd.set_option("display.width", 220)
+    print(f"Fold D, {dates[0].date()} to {dates[-1].date()} ({len(dates)} days); choice on folds A-C: {choice}")
+    print(f"1/N Sharpe {table.sharpe_1n.iloc[0]:.3f} (M6 final test: {m6_ew:.3f})")
+    print(table.drop(columns=["fold", "sharpe_1n"]).round(3).to_string(index=False))
+    print("\nSeed spread of each seed's own difference:")
+    print(pd.DataFrame(seed_rows).round(3).to_string(index=False))
+
+
 def select() -> None:
     rows, seed_rows = [], []
-    for fold in FOLDS:
+    for fold in SELECTION_FOLDS:
         ret, members, val = candidate_returns(fold)
         rf = load_risk_free_daily(str(RF_DIR), val)
         ew = ret[BENCHMARK].to_numpy() - rf
@@ -319,7 +372,7 @@ def select() -> None:
     table.to_csv(OUT / "selection_rule_folds.csv", index=False, float_format="%.6g")
     summary.to_csv(OUT / "selection_rule_summary.csv", index=False, float_format="%.6g")
     seeds.to_csv(OUT / "selection_rule_seed_spread.csv", index=False, float_format="%.6g")
-    (OUT / "selection_rule_choice.json").write_text(json.dumps({"choice": choice, "folds": list(FOLDS)}, indent=2))
+    (OUT / "selection_rule_choice.json").write_text(json.dumps({"choice": choice, "folds": SELECTION_FOLDS}, indent=2))
     pd.set_option("display.width", 220)
     print("Sharpe minus 1/N by fold (5 bps net excess), 95% interval:")
     print(table.pivot(index="candidate", columns="fold", values=["delta", "ci_low", "ci_high"]).round(3).to_string())
@@ -339,11 +392,14 @@ if __name__ == "__main__":
     ap.add_argument("--floor", choices=list(FLOORS))
     ap.add_argument("--merge", action="store_true")
     ap.add_argument("--select", action="store_true")
+    ap.add_argument("--holdout", action="store_true")
     a = ap.parse_args()
     if a.check:
         check()
     elif a.select:
         select()
+    elif a.holdout:
+        holdout()
     elif a.merge:
         merge(a.fold)
     elif a.erc:
