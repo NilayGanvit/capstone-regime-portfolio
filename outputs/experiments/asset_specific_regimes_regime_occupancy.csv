@@ -1,0 +1,21 @@
+stage,asset,share_high_variance,agreement_with_spy
+validation 2015-2018,SPY,0.145833,1
+validation 2015-2018,EFA,0.0208333,0.875
+validation 2015-2018,EEM,0.0416667,0.895833
+validation 2015-2018,IEF,0.104167,0.791667
+validation 2015-2018,TLT,0.166667,0.729167
+validation 2015-2018,LQD,0,0.854167
+validation 2015-2018,HYG,0.0416667,0.854167
+validation 2015-2018,GLD,0.0625,0.833333
+validation 2015-2018,DBC,0.145833,0.833333
+validation 2015-2018,VNQ,0.0208333,0.875
+final test 2019-2026 (exploratory),SPY,0.26087,1
+final test 2019-2026 (exploratory),EFA,0.0652174,0.804348
+final test 2019-2026 (exploratory),EEM,0.0326087,0.75
+final test 2019-2026 (exploratory),IEF,0.358696,0.728261
+final test 2019-2026 (exploratory),TLT,0.326087,0.76087
+final test 2019-2026 (exploratory),LQD,0.0652174,0.804348
+final test 2019-2026 (exploratory),HYG,0.173913,0.869565
+final test 2019-2026 (exploratory),GLD,0.184783,0.663043
+final test 2019-2026 (exploratory),DBC,0.206522,0.793478
+final test 2019-2026 (exploratory),VNQ,0.108696,0.804348
