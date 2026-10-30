@@ -1,0 +1,114 @@
+{
+  "downloaded_utc": "2026-10-25T05:07:52.641373+00:00",
+  "source": "Yahoo Finance via yfinance (proxies), FRED fredgraph.csv (DGS3MO)",
+  "series": {
+    "SPY": {
+      "ticker": "VFINX",
+      "column": "Adj Close"
+    },
+    "EFA": {
+      "ticker": "VGTSX",
+      "column": "Adj Close"
+    },
+    "EEM": {
+      "ticker": "VEIEX",
+      "column": "Adj Close"
+    },
+    "IEF": {
+      "ticker": "VFITX",
+      "column": "Adj Close"
+    },
+    "TLT": {
+      "ticker": "VUSTX",
+      "column": "Adj Close"
+    },
+    "LQD": {
+      "ticker": "VWESX",
+      "column": "Adj Close"
+    },
+    "HYG": {
+      "ticker": "VWEHX",
+      "column": "Adj Close"
+    },
+    "GLD": {
+      "ticker": "GC=F",
+      "column": "Close"
+    },
+    "DBC": {
+      "ticker": "^SPGSCI",
+      "column": "Close"
+    },
+    "VNQ": {
+      "ticker": "VGSIX",
+      "column": "Adj Close"
+    }
+  },
+  "files": {
+    "SPY_VFINX.csv": {
+      "rows": 11799,
+      "first": "1980-01-02",
+      "last": "2026-10-23",
+      "sha256": "f71e3f84f95065f587e5aa184b9cd9089eb97d19951675338296e6fb74658259"
+    },
+    "EFA_VGTSX.csv": {
+      "rows": 7672,
+      "first": "1996-04-29",
+      "last": "2026-10-23",
+      "sha256": "8cad59b61b8f8ad01649a747d2c7b49b3e6b7003886ef1a3ba565e91ec8eca4d"
+    },
+    "EEM_VEIEX.csv": {
+      "rows": 8174,
+      "first": "1994-05-04",
+      "last": "2026-10-23",
+      "sha256": "5f3071ae5186dae629ccef1a1572f3c262142dba0dbe5f74a4495c50a4ff2bce"
+    },
+    "IEF_VFITX.csv": {
+      "rows": 8810,
+      "first": "1991-10-28",
+      "last": "2026-10-23",
+      "sha256": "b4eb67e9674cfea71cce8521f2859b5ac6e4f25cf30be53420158568d8e4d46b"
+    },
+    "TLT_VUSTX.csv": {
+      "rows": 10187,
+      "first": "1986-05-19",
+      "last": "2026-10-23",
+      "sha256": "ec6915eeadf06e6928d4414bbb2f0049cccccba86077df64592d64b14f6d8078"
+    },
+    "LQD_VWESX.csv": {
+      "rows": 11799,
+      "first": "1980-01-02",
+      "last": "2026-10-23",
+      "sha256": "a7602fc6f052c04224237ac2a50ddfc5cb1a18d5e86acca9b91d4f310b8657ce"
+    },
+    "HYG_VWEHX.csv": {
+      "rows": 11799,
+      "first": "1980-01-02",
+      "last": "2026-10-23",
+      "sha256": "3552a6058dd68c6cde95b161e9b49cce86a257cd968b5cdcedb33f2a964944b6"
+    },
+    "GLD_GCF.csv": {
+      "rows": 6563,
+      "first": "2000-08-30",
+      "last": "2026-10-23",
+      "sha256": "ee65912aebdfb5c63154ca22968426ef789a905f8fc0d0da519571ffd8f7360c"
+    },
+    "DBC_SPGSCI.csv": {
+      "rows": 10786,
+      "first": "1984-01-03",
+      "last": "2026-10-23",
+      "sha256": "f6478e8ad9ed2437da38ed08aeb1c6db2f5683ab38721c8fac82dec7e5df9486"
+    },
+    "VNQ_VGSIX.csv": {
+      "rows": 7662,
+      "first": "1996-05-13",
+      "last": "2026-10-23",
+      "sha256": "0f01e419310302c7e8ad1d4714f8afcadddcaa249d7ea44d93feb83c6398d557"
+    },
+    "DGS3MO.csv": {
+      "rows": 11778,
+      "first": "1981-09-01",
+      "last": "2026-10-22",
+      "sha256": "53893b1f0465ed5139953adcfbe9576702e841f2ef3a9b19fa48e1760e5c6308"
+    }
+  }
+}
