@@ -56,7 +56,10 @@ existing caller's behavior changes unless it opts in:
     correlation with each asset's variance forecast from its own
     univariate HMM (asset_regime.py), fitted and refitted on the same
     schedule as the joint HMM -- trial 18, an experiment, not a primary
-    config.
+    config. With it, lstm_models may also hold "asset_regime" (trial 20),
+    run as lstm_asset_regime: an LSTM whose regime inputs are each asset's
+    high-variance probability, kept as a causal day-by-day record exactly
+    like the joint probabilities.
 
 Scheduled refit is implemented: the HMM, M0/M1 densities, and covariances
 are re-estimated on an expanding window with state alignment to maintain
@@ -95,7 +98,9 @@ from allocation_erc import (
     erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares, RISK_BUDGET_SOLVERS,
 )
 from allocation_hrp import hrp_baseline_weights, hrp_regime_weights
-from asset_regime import fit_asset_hmms, asset_regime_forecast, asset_regime_covariance
+from asset_regime import (
+    AssetRegimeFilter, asset_regime_covariance, asset_regime_forecast, fit_asset_hmms, high_variance_probabilities,
+)
 from allocation_lstm import predict_budgets, budgets_to_weights_batch, build_lstm_training_windows, train_lstm_allocator
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
 
@@ -258,6 +263,10 @@ def run_walk_forward(
     on the joint HMM's refit dates (warm-started like it when
     refit_warm_start), and adds erc_asset_regime: ERC against the pooled
     correlation rescaled to each asset's one-step-ahead mixture variance.
+    It is required when lstm_models holds "asset_regime" (from
+    lstm_training.train_lstm_variants(asset_regime_states=...)); that network's budgets
+    are turned into weights against erc_asset_regime's covariance, as
+    lstm_regime's are against erc_regime's.
     """
     if constraint_spec is None:
         constraint_spec = ConstraintSpec()
@@ -270,6 +279,11 @@ def run_walk_forward(
         raise ValueError("lstm_models and lstm_feature_matrix must be given together, or neither.")
     if lstm_retrain_every_n_rebalances is not None and not have_lstm:
         raise ValueError("lstm_retrain_every_n_rebalances requires lstm_models (nothing to warm-start from).")
+    have_asset_lstm = have_lstm and "asset_regime" in lstm_models
+    if have_asset_lstm and asset_regime_states is None:
+        raise ValueError('lstm_models["asset_regime"] requires asset_regime_states (its regime inputs).')
+    if have_asset_lstm and lstm_retrain_every_n_rebalances is not None:
+        raise ValueError('lstm_models["asset_regime"] is never retrained; lstm_retrain_every_n_rebalances must be None.')
 
     dates = returns.index
     X = returns.to_numpy()
@@ -333,6 +347,13 @@ def run_walk_forward(
         # record rather than something recomputed retroactively at refit.
         regime_probs_cache = np.empty((len(dates), n_states))
         regime_probs_cache[:initial_window] = hmm.predicted_probabilities(train)
+    if have_asset_lstm:
+        configs += ["lstm_asset_regime"]
+        # The same causal record for each asset's high-variance probability,
+        # advanced one day at a time by asset_filter between refits.
+        asset_probs_cache = np.empty((len(dates), n_assets))
+        asset_probs_cache[:initial_window] = high_variance_probabilities(asset_hmms, train)
+        asset_filter = AssetRegimeFilter(asset_hmms, train)
 
     weights_out = {c: [] for c in configs}
     port_ret_out = {c: [] for c in configs}
@@ -342,6 +363,8 @@ def run_walk_forward(
     refit_dates = []
     lstm_retrain_dates = []
     lstm_budgets_history = {"baseline": [], "regime": []}
+    if have_asset_lstm:
+        lstm_budgets_history["asset_regime"] = []
     rebalance_count = 0
 
     prev_weights = {c: np.full(n_assets, 1.0 / n_assets) for c in configs}
@@ -409,6 +432,9 @@ def run_walk_forward(
         predicted_for_tomorrow = hmm.predicted_probabilities(hist_incl_today)[-1]
         if have_lstm:
             regime_probs_cache[abs_idx] = predicted_for_tomorrow
+        if have_asset_lstm:
+            asset_filter.update(r_t)
+            asset_probs_cache[abs_idx] = asset_filter.high_variance_probability()
 
         if date in rebalance_dates:
             rebalance_count += 1
@@ -455,6 +481,9 @@ def run_walk_forward(
                         train, asset_regime_states,
                         init_from=asset_hmms if refit_warm_start else None, n_iter=refit_n_iter,
                     )
+                    if have_asset_lstm:
+                        asset_filter = AssetRegimeFilter(asset_hmms, train)
+                        asset_probs_cache[abs_idx] = asset_filter.high_variance_probability()
 
                 refit_dates.append(date)
 
@@ -564,6 +593,16 @@ def run_walk_forward(
                     "lstm_regime": w_lstm_regime,
                     "lstm_blend": w_lstm_blend,
                 })
+                if have_asset_lstm:
+                    asset_window = np.concatenate(
+                        [baseline_window, asset_probs_cache[abs_idx + 1 - lstm_seq_len: abs_idx + 1]],
+                        axis=1,
+                    )
+                    budgets_asset = predict_budgets(lstm_models["asset_regime"], asset_window)
+                    lstm_budgets_history["asset_regime"].append({"date": date, "budgets": budgets_asset})
+                    raw_targets["lstm_asset_regime"] = budgets_to_weights_batch(
+                        budgets_asset[None, :], covs_for_diagnostic["erc_asset_regime"], solver=risk_budget_solver,
+                    )[0]
 
             for c in configs:
                 w_drift = drift_weights(prev_weights[c], np.exp(r_t))

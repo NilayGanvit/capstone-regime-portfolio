@@ -66,6 +66,37 @@ def asset_regime_forecast(hmms: list[GaussianHMM], X: np.ndarray) -> tuple[np.nd
     return variances, high_var_prob
 
 
+def high_variance_probabilities(hmms: list[GaussianHMM], X: np.ndarray) -> np.ndarray:
+    """(T, n_assets): row t is each asset's P(S_t+1 = its higher-variance
+    state | F_t) over history X -- the regime inputs of the per-asset
+    regime LSTM (trial 20)."""
+    out = np.empty(X.shape)
+    for i, model in enumerate(hmms):
+        high = np.argmax(model.covars_[:, 0, 0])
+        out[:, i] = model.predicted_probabilities(RETURN_SCALE * X[:, [i]])[:, high]
+    return out
+
+
+class AssetRegimeFilter:
+    """Day-by-day forward filter for the per-asset HMMs: after update(x_t),
+    high_variance_probability() equals the last row of
+    high_variance_probabilities(hmms, X[:t+1]) without re-running the
+    filter over the whole history each day."""
+
+    def __init__(self, hmms: list[GaussianHMM], X: np.ndarray):
+        self.hmms = hmms
+        self.alpha = np.array([m.filtered_probabilities(RETURN_SCALE * X[:, [i]])[-1] for i, m in enumerate(hmms)])
+
+    def update(self, x_t: np.ndarray) -> None:
+        for i, m in enumerate(self.hmms):
+            b = m._emission_probs(RETURN_SCALE * np.array([[x_t[i]]]))[0]
+            a = (self.alpha[i] @ m.transmat_) * b
+            self.alpha[i] = a / a.sum()
+
+    def high_variance_probability(self) -> np.ndarray:
+        return np.array([(self.alpha[i] @ m.transmat_)[np.argmax(m.covars_[:, 0, 0])] for i, m in enumerate(self.hmms)])
+
+
 def asset_regime_covariance(pooled_cov: np.ndarray, variances: np.ndarray) -> np.ndarray:
     """D R D: the pooled correlation R with each asset's forecast
     standard deviation on the diagonal scaling D."""

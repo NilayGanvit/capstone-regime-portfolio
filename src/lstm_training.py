@@ -19,6 +19,7 @@ import pandas as pd
 
 from features import build_feature_matrix
 from regime import GaussianHMM
+from asset_regime import fit_asset_hmms, high_variance_probabilities
 from allocation_lstm import RiskBudgetLSTM, build_lstm_training_windows, train_lstm_allocator
 
 
@@ -35,10 +36,17 @@ def train_lstm_variants(
     turnover_penalty: float = 0.1,
     shrinkage: float = 0.10,
     verbose: bool = False,
+    asset_regime_states: int | None = None,
 ) -> tuple[dict, pd.DataFrame]:
     """Train {"baseline": model, "regime": model} on returns[:initial_window]
     and return them with the full-history feature matrix, ready for
-    run_walk_forward's lstm_models/lstm_feature_matrix."""
+    run_walk_forward's lstm_models/lstm_feature_matrix.
+
+    `asset_regime_states`, if set, also trains "asset_regime" (trial 20): the
+    regime recipe with each asset's high-variance probability from its own
+    HMM (asset_regime.py) in place of the joint state probabilities. It is
+    trained after the other two, each from its own seeded init, so they are
+    unchanged."""
     n_assets = returns.shape[1]
     train_returns = returns.iloc[:initial_window]
     feature_matrix = build_feature_matrix(returns)  # causal by construction, safe over full history
@@ -51,9 +59,17 @@ def train_lstm_variants(
         columns=[f"regime_prob_{k}" for k in range(n_states)],
     )
     regime_features_train = train_features.join(regime_prob_df, how="inner")
+    variants = [("baseline", train_features), ("regime", regime_features_train)]
+    if asset_regime_states is not None:
+        asset_hmms = fit_asset_hmms(train_returns.to_numpy(), asset_regime_states)
+        asset_prob_df = pd.DataFrame(
+            high_variance_probabilities(asset_hmms, train_returns.to_numpy()), index=train_returns.index,
+            columns=[f"high_variance_prob_{t}" for t in returns.columns],
+        )
+        variants.append(("asset_regime", train_features.join(asset_prob_df, how="inner")))
 
     models = {}
-    for variant_name, feats in [("baseline", train_features), ("regime", regime_features_train)]:
+    for variant_name, feats in variants:
         windows, covs, fwd, dates = build_lstm_training_windows(
             feats, train_returns, seq_len=seq_len, cov_window=cov_window,
         )

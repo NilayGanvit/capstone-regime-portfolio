@@ -63,3 +63,66 @@ def test_walk_forward_option_adds_the_config_and_leaves_the_others_unchanged():
     assert np.isfinite(with_option.portfolio_returns["erc_asset_regime"]).all()
     assert len(with_option.asset_regime_history) == len(with_option.binding_constraints_history["erc_asset_regime"])
     assert base.asset_regime_history == []
+
+
+def test_day_by_day_filter_matches_the_full_history_at_every_day():
+    from asset_regime import AssetRegimeFilter, high_variance_probabilities
+
+    ds, _ = make_synthetic_universe(n_days=700, seed=3)
+    X = ds.returns.to_numpy()[:, :3]
+    hmms = fit_asset_hmms(X[:400], n_states=2)
+    filt = AssetRegimeFilter(hmms, X[:400])
+    assert np.allclose(filt.high_variance_probability(), high_variance_probabilities(hmms, X[:400])[-1], atol=1e-12)
+    for t in range(400, len(X)):
+        filt.update(X[t])
+        assert np.allclose(filt.high_variance_probability(), high_variance_probabilities(hmms, X[:t + 1])[-1], atol=1e-12)
+
+
+_SMALL = dict(n_epochs=1, seq_len=20, cov_window=60, n_states=2)
+
+
+def _lstm_available():
+    from allocation_lstm import _CVXPYLAYERS_AVAILABLE, _TORCH_AVAILABLE
+    return _TORCH_AVAILABLE and _CVXPYLAYERS_AVAILABLE
+
+
+def test_asset_regime_variant_adds_one_input_per_asset_and_leaves_the_others_unchanged():
+    import pytest
+    if not _lstm_available():
+        pytest.skip("requires torch and cvxpylayers")
+    import torch
+    from lstm_training import train_lstm_variants
+
+    ds, _ = make_synthetic_universe(n_days=500, seed=0)
+    plain, _ = train_lstm_variants(ds.returns, 400, seed=5, budget_floor=0.05, **_SMALL)
+    models, _ = train_lstm_variants(ds.returns, 400, seed=5, budget_floor=0.05, asset_regime_states=2, **_SMALL)
+    assert set(models) == {"baseline", "regime", "asset_regime"}
+    assert models["asset_regime"].lstm.input_size == models["baseline"].lstm.input_size + ds.returns.shape[1]
+    for v in ["baseline", "regime"]:
+        for name, p in plain[v].state_dict().items():
+            assert torch.equal(p, models[v].state_dict()[name])
+
+
+def test_walk_forward_runs_the_asset_regime_lstm_and_leaves_the_others_unchanged():
+    import pytest
+    if not _lstm_available():
+        pytest.skip("requires torch and cvxpylayers")
+    from lstm_training import train_lstm_variants
+
+    ds, _ = make_synthetic_universe(n_days=600, seed=7)
+    models, fm = train_lstm_variants(ds.returns, 252, seed=1, budget_floor=0.05, asset_regime_states=2, **_SMALL)
+    kwargs = dict(n_states=2, initial_window=252, lstm_feature_matrix=fm, lstm_seq_len=20, asset_regime_states=2,
+                  constraint_spec=ConstraintSpec(lower=0.0, upper=0.30, max_turnover=0.30))
+    pair = {v: models[v] for v in ["baseline", "regime"]}
+    base = run_walk_forward(ds.returns, lstm_models=pair, **kwargs)
+    full = run_walk_forward(ds.returns, lstm_models=models, **kwargs)
+
+    assert set(full.weights) == set(base.weights) | {"lstm_asset_regime"}
+    for c in base.weights:
+        assert np.array_equal(full.portfolio_returns[c], base.portfolio_returns[c])
+    w = full.weights["lstm_asset_regime"]
+    assert np.allclose(w.sum(axis=1), 1.0, atol=1e-6) and (w >= -1e-6).all()
+    assert len(full.lstm_budgets_history["asset_regime"]) == len(full.binding_constraints_history["lstm_asset_regime"])
+
+    with pytest.raises(ValueError):
+        run_walk_forward(ds.returns, lstm_models=models, **{**kwargs, "asset_regime_states": None})
