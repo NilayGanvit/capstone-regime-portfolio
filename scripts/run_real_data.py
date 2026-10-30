@@ -124,12 +124,13 @@ LSTM_SEED = 123
 LSTM_BUDGET_FLOOR = 0.05  # bounded Softmax, 5% minimum risk budget (Parra-Diaz & Castro-Iragorri); selected over the dev/validation samples, see src/allocation_lstm.py:bounded_softmax
 
 
-def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_matrix=None, risk_budget_solver=None):
+def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_matrix=None, risk_budget_solver=None, **extra_options):
     """The walk-forward every reported result comes from. Without LSTM models
     it returns the ERC and equal-weight configs only, which do not depend on
     LSTM training and so reproduce exactly across environments.
     `risk_budget_solver` defaults to RISK_BUDGET_SOLVER; "slsqp" reproduces the
-    original pipeline for comparison."""
+    original pipeline for comparison. `extra_options` pass opt-in experiment
+    settings through to run_walk_forward (e.g. asset_regime_states)."""
     return run_walk_forward(
         ds.returns,
         n_states=LSTM_N_STATES,
@@ -142,6 +143,7 @@ def run_primary_walk_forward(ds, initial_window, lstm_models=None, lstm_feature_
         lstm_feature_matrix=lstm_feature_matrix,
         lstm_seq_len=LSTM_SEQ_LEN,
         risk_budget_solver=risk_budget_solver or RISK_BUDGET_SOLVER,
+        **extra_options,
     )
 
 

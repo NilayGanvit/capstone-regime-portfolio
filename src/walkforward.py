@@ -52,6 +52,11 @@ existing caller's behavior changes unless it opts in:
     regime dimension). Also a secondary robustness check, not a new
     config -- it changes the M1 density feeding pi_t, so it can shift
     erc_blend/hrp_blend/lstm_blend without adding new configs.
+  - `asset_regime_states`: adds erc_asset_regime, ERC against the pooled
+    correlation with each asset's variance forecast from its own
+    univariate HMM (asset_regime.py), fitted and refitted on the same
+    schedule as the joint HMM -- trial 18, an experiment, not a primary
+    config.
 
 Scheduled refit is implemented: the HMM, M0/M1 densities, and covariances
 are re-estimated on an expanding window with state alignment to maintain
@@ -90,6 +95,7 @@ from allocation_erc import (
     erc_baseline_weights, erc_regime_weights, regularize_covariance, risk_contribution_shares, RISK_BUDGET_SOLVERS,
 )
 from allocation_hrp import hrp_baseline_weights, hrp_regime_weights
+from asset_regime import fit_asset_hmms, asset_regime_forecast, asset_regime_covariance
 from allocation_lstm import predict_budgets, budgets_to_weights_batch, build_lstm_training_windows, train_lstm_allocator
 from constraints import ConstraintSpec, drift_weights, project_onto_constraints, turnover as turnover_fn, binding_constraints
 
@@ -107,6 +113,7 @@ class WalkForwardResult:
     refit_dates: list       # dates on which a scheduled refit occurred
     lstm_retrain_dates: list  # dates on which the LSTM allocators were retrained (empty unless lstm_retrain_every_n_rebalances is set)
     lstm_budgets_history: dict  # "baseline"/"regime" -> list of {date, budgets}, the raw RiskBudgetLSTM softmax output *before* the shared risk-budgeting layer converts it to weights (empty unless lstm_models is set) -- the quantity Table 4's floor-concentration stats are computed on, not the post-risk-budgeting portfolio weight
+    asset_regime_history: list = field(default_factory=list)  # one {date, variances, high_var_prob} per rebalance, each (n_assets,) (empty unless asset_regime_states is set)
 
 
 def ewma_blend(new: np.ndarray, prev: np.ndarray, lam: float) -> np.ndarray:
@@ -150,6 +157,7 @@ def run_walk_forward(
     include_hrp: bool = False,
     risk_budget_solver: str = "exact",
     per_regime_nu: bool = False,
+    asset_regime_states: int | None = None,
 ) -> WalkForwardResult:
     """Run the ERC baseline / regime / reliability-blend configurations
     walk-forward, plus the fixed equal-weight benchmark, over `returns`
@@ -244,6 +252,12 @@ def run_walk_forward(
     secondary robustness check, changing the M1 density (and hence pi_t
     and every *_blend config) rather than adding new configs. M0 always
     keeps the pooled, shared nu.
+
+    `asset_regime_states`, if set, fits one univariate HMM with that many
+    states per asset (asset_regime.py) on the initial window, refits each
+    on the joint HMM's refit dates (warm-started like it when
+    refit_warm_start), and adds erc_asset_regime: ERC against the pooled
+    correlation rescaled to each asset's one-step-ahead mixture variance.
     """
     if constraint_spec is None:
         constraint_spec = ConstraintSpec()
@@ -273,6 +287,8 @@ def run_walk_forward(
     train = X[:initial_window]
     hmm = GaussianHMM(n_states=n_states, random_state=0).fit(train)
     filtered_train = hmm.filtered_probabilities(train)
+    if asset_regime_states is not None:
+        asset_hmms = fit_asset_hmms(train, asset_regime_states)
 
     std_resid = ((train - train.mean(axis=0)) / train.std(axis=0)).ravel()
     nu = fit_shared_nu(std_resid)  # M0 always uses this, regardless of per_regime_nu
@@ -302,6 +318,9 @@ def run_walk_forward(
     configs = ["erc_baseline", "erc_regime", "erc_blend", "equal_weight"]
     if include_hrp:
         configs += ["hrp_baseline", "hrp_regime", "hrp_blend"]
+    if asset_regime_states is not None:
+        configs += ["erc_asset_regime"]
+    asset_regime_history = []
     if have_lstm:
         configs += ["lstm_baseline", "lstm_regime", "lstm_blend"]
         # Causal one-step-ahead regime-probability history for the regime
@@ -431,6 +450,12 @@ def run_walk_forward(
                 else:
                     smoothed_state_covs = state_covs
 
+                if asset_regime_states is not None:
+                    asset_hmms = fit_asset_hmms(
+                        train, asset_regime_states,
+                        init_from=asset_hmms if refit_warm_start else None, n_iter=refit_n_iter,
+                    )
+
                 refit_dates.append(date)
 
                 hist_incl_today = train
@@ -460,6 +485,13 @@ def run_walk_forward(
                 "erc_blend": w_blend_raw,
                 "equal_weight": w_equal,
             }
+
+            if asset_regime_states is not None:
+                asset_variances, high_var_prob = asset_regime_forecast(asset_hmms, X[:abs_idx + 1])
+                asset_regime_cov = asset_regime_covariance(pooled_cov, asset_variances)
+                covs_for_diagnostic["erc_asset_regime"] = regularize_covariance(asset_regime_cov, shrinkage)
+                raw_targets["erc_asset_regime"] = erc_baseline_weights(asset_regime_cov, shrinkage, solver=risk_budget_solver)
+                asset_regime_history.append({"date": date, "variances": asset_variances, "high_var_prob": high_var_prob})
 
             if include_hrp:
                 # Same pooled_cov/smoothed_state_covs/regime_probs_now/pi_t
@@ -594,4 +626,5 @@ def run_walk_forward(
         refit_dates=refit_dates,
         lstm_retrain_dates=lstm_retrain_dates,
         lstm_budgets_history=lstm_budgets_history,
+        asset_regime_history=asset_regime_history,
     )
