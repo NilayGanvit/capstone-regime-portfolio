@@ -310,7 +310,7 @@ def select() -> None:
             rows.append({"candidate": name, "fold": fold, "delta": sharpe_ratio(r.to_numpy(), risk_free=rf) - sh_ew,
                          "ci_low": ci["ci_low"], "ci_high": ci["ci_high"], "block": ci["expected_block_length"]})
         for name, frame in members.items():
-            per_seed = np.array([sharpe_ratio(frame[c].to_numpy(), risk_free=rf) - sh_ew for c in frame.columns])
+            per_seed = np.array([sharpe_ratio(frame.iloc[:, i].to_numpy(), risk_free=rf) - sh_ew for i in range(frame.shape[1])])
             seed_rows.append({"candidate": name, "fold": fold, "seed_median": float(np.median(per_seed)),
                               "seed_q25": float(np.quantile(per_seed, 0.25)), "seed_q75": float(np.quantile(per_seed, 0.75))})
     table = pd.DataFrame(rows)
