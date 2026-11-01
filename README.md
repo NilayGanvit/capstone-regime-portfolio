@@ -3,33 +3,132 @@
 **Reliability-Gated, Regime-Aware Dynamic Risk Budgeting**
 MScFE 690 Capstone — Track 7 (Medium/Long-Term Trading Models) + Track 8.2 (ML/DL Portfolio Allocation)
 
-Silvio Mazzaro · AnnaLisa Aaron · Nilay Jayantibhai Ganvit
+AnnaLisa Aaron · Nilay Jayantibhai Ganvit · Silvio Mazzaro
 
-This repository implements the architecture specified in the M2 problem
-statement and extended in the M3 literature review: a Hidden Markov
-regime model, two allocators (ERC risk parity and an LSTM dynamic
-risk-budgeting network) each with baseline/regime-aware variants, a
-Dynamic-Model-Averaging reliability layer that blends them, shared
-constraints, and a walk-forward evaluation harness.
+## Project Overview
 
-## Status
+This project examines whether incorporating market regime information improves medium-term portfolio allocation, and whether accounting for predictive reliability provides additional benefits.
 
-**Working end-to-end on both synthetic and the real ten-ETF universe**,
-with a full pytest suite passing (the only skip is the pre-existing
-torch/cvxpylayers-absence check, which does not apply once those
-packages are installed, per requirements.txt). The walk-forward
-harness -- with M2's calendar boundaries (`data.M2Calendar`),
-next-session-open execution, a transaction-cost ledger (5/10/25 bps
-sensitivity), the Deflated Sharpe Ratio, risk-contribution diagnostics,
-and scheduled model refit all wired in -- now produces all six M2
-evaluation-table configs (ERC and LSTM, each baseline/regime/blend) plus
-the equal-weight benchmark from one run (`scripts/run_real_data.py`,
-which trains the LSTM on the initial window and passes it into
-`run_walk_forward`). The pre-specified 2-state/no-VNQ/no-HYG robustness
-checks, and the two secondary robustness checks M2's own scope note
-deferred (HRP, per-regime ν), have all been run on real data (see "Next
-steps" below for what's still open: the refit-cadence question and
-feeding the robustness numbers into the M3 lit-review writeup).
+We compare Equal Risk Contribution (ERC) and Long Short-Term Memory (LSTM) risk-budgeting strategies across a diversified universe of ten exchange-traded funds. Each allocator is evaluated in three configurations: baseline, regime-aware, and reliability-blended. A simple equal-weight portfolio provides an additional benchmark.
+
+The primary analysis evaluates the incremental contribution of regime information and predictive reliability under common portfolio constraints, decision dates, transaction costs, and execution conventions.
+
+## Research Questions
+
+RQ1 — Regime information: Does regime conditioning improve net risk-adjusted performance relative to the corresponding baseline allocator?
+
+RQ2 — Allocator differences: Is the incremental effect of regime information different between ERC and LSTM?
+
+RQ3 — Predictive reliability: Does reliability-weighted blending improve performance relative to the corresponding regime-aware portfolio?
+
+## Model Architecture
+The pipeline combines:
+
+A three-state Gaussian Hidden Markov Model (HMM) for estimating market regime probabilities.
+
+Two portfolio allocators: ERC with fixed equal risk budgets and an LSTM that learns time-varying risk budgets.
+
+Regime-conditioned covariance estimates for the regime-aware configurations.
+
+Two Student-t predictive-density models that provide the evidence used to update the reliability weight.
+
+Reliability-based blending of baseline and regime-aware portfolios within each allocator.
+
+Shared portfolio constraints, monthly rebalancing, transaction-cost accounting, and chronological walk-forward evaluation.
+
+The LSTM produces risk budgets rather than portfolio weights directly. A common exact convex risk-budgeting solver converts these budgets into unconstrained portfolio targets, after which the portfolio constraints are applied.
+
+## Data and Evaluation
+
+The primary universe comprises SPY, EFA, EEM, IEF, TLT, LQD, HYG, GLD, DBC, and VNQ, representing equities, government bonds, corporate credit, gold, commodities, and real estate.
+
+The study uses the following chronological periods:
+
+| Period | Purpose |
+|:---|:---|
+| **April 2007 – December 2014** | Initial model estimation and LSTM training |
+| **January 2015 – December 2018** | Model validation and specification selection |
+| **January 2019 – August 2026** | Exploratory historical evaluation |
+
+The final period is not treated as an independent holdout because observations from it were examined during model development.
+
+Portfolio decisions occur monthly at the end-of-month close, with execution at the following session's adjusted opening price. The reference implementation is long-only, fully invested, and applies a 30% per-asset weight limit and a 30% turnover limit measured using decision-close holdings.
+
+Headline Sharpe ratios are computed from daily returns in excess of a lagged three-month U.S. Treasury yield series (FRED DGS3MO). Transaction-cost sensitivity is evaluated at 5, 10, and 25 basis points.
+
+The initial LSTM training period contains 80 overlapping monthly examples. The primary specification retains network parameters fitted through 2014, while quarterly LSTM retraining is evaluated separately.
+
+## M6 Reference Implementation
+
+The frozen M6 reference run uses:
+
+Three HMM states, with quarterly expanding-window reestimation.
+
+ERC and LSTM baseline, regime-aware, and reliability-blended configurations.
+
+Bounded Softmax for the LSTM, with a 5% minimum risk-budget share.
+
+Seed 123 and 200 training epochs.
+
+The exact convex risk-budgeting solver for portfolio construction.
+
+Consistent transaction-cost and risk-free-rate conventions across configurations.
+
+Reference commit: 6a6b12de19b567ba7c1feda10bd5423cd72b5e23
+
+Saved reference outputs and checkpoints should be used when reproducing the reported results. LSTM training is sensitive to the numerical environment: identical seeds do not guarantee identical fitted networks across Mac and Colab. Inference from the archived checkpoints is substantially more reproducible.
+
+## Main Findings
+
+In the final reference run, regime conditioning did not improve net Sharpe for either allocator. At 5 basis points, ERC's baseline and regime-aware Sharpe ratios were approximately 0.455, while the LSTM's declined from 0.540 to 0.439 after adding regime conditioning.
+
+Reliability blending produced small positive changes relative to the regime-aware configurations, but their paired bootstrap confidence intervals included zero. The equal-weight benchmark achieved a higher net Sharpe than all six model-based portfolios.
+
+The study also found:
+
+Bounded Softmax reduced the dispersion of learned risk budgets across ten LSTM seeds by more than half relative to ordinary Softmax.
+
+Increased stability of predicted budgets did not establish superior investment performance.
+
+Quarterly HMM refitting was retained as an implementation choice rather than an empirically superior schedule.
+
+Results from the single final LSTM initialization should not be interpreted as typical outcomes across seeds.
+
+The Deflated Sharpe Ratio was sensitive to assumptions about the dispersion and effective number of candidate trials.
+
+The findings do not establish a consistent economic advantage from adding regime information or predictive reliability.
+
+## Verification and Robustness
+
+The project includes numerical solver checks, independent portfolio-accounting reconciliation, initialization-stability experiments, transaction-cost sensitivity, paired stationary-bootstrap inference, and DSR sensitivity analysis.
+
+A subsequent implementation audit found that the decision-close turnover convention occasionally permitted opening turnover above the 30% limit. Across the seven configurations, 17 configuration-level violations occurred, with a maximum opening turnover of 30.6715%. Strictly enforcing the limit at execution and recalculating transaction costs from opening turnover produced small changes without altering the conclusions for RQ1–RQ3.
+
+An exploratory gross-return attribution indicated that equities and real estate accounted for approximately 94.8% of the arithmetic contribution gap between ERC baseline and equal weighting during 2019–2026. This is descriptive attribution, not evidence that equal weighting is universally superior.
+
+Supporting files are available under:
+
+outputs/verification/m6_implementation/
+
+## Additional Exploratory Experiments
+
+Separate experimental branches examine crisis-period robustness, asset-specific regimes, and LSTM seed ensembles.
+
+These experiments are not part of the frozen M6 reference specification. The crisis-fold checks provide additional evidence about initialization stability and the sensitivity of regime-refitting choices across different historical periods. Asset-specific regimes and seed ensembles are exploratory extensions and do not replace the primary results.
+
+Results from these experiments should be interpreted with their documented validation procedures, training environments, and historical-sample limitations.
+
+## Repository Organization
+
+| Directory | Contents |
+|:---|:---|
+| [`src/`](src/) | Data processing, regime estimation, predictive densities, reliability modeling, portfolio allocation, and evaluation |
+| [`scripts/`](scripts/) | Reference runs, robustness experiments, diagnostics, and verification utilities |
+| [`tests/`](tests/) | Unit, integration, solver, and portfolio-accounting tests |
+| [`data/raw/`](data/raw/) | Archived ETF prices and risk-free-rate data |
+| [`outputs/`](outputs/) | Model results, diagnostics, robustness analyses, and archived outputs |
+| [`outputs/verification/m6_implementation/`](outputs/verification/m6_implementation/) | Turnover, transaction-cost, and return-attribution verification |
+| [`docs/`](docs/) | Methodology, experiment documentation, and verification records |
 
 ```
 python scripts/run_smoke_test.py       # synthetic 2-regime data, plumbing check
@@ -45,26 +144,6 @@ works, not to say anything about the real research questions. The other
 scripts run on the real data in `data/raw/` and write to
 `outputs/real_data_summary.csv` (gross), `real_data_cost_sensitivity.csv`
 (net of costs), and `outputs/robustness_*.csv`, among others.
-
-## Module map and ownership
-
-Matches the division of labor from M2/M3 group discussion, so each
-module's docstring also states who owns it and which section of the M2
-pseudocode / M3 lit review it implements.
-
-| Module | Owner | Implements |
-|---|---|---|
-| `src/data.py` | Nilay | Price loading, returns, point-in-time (`as_of`) access, synthetic-data generator |
-| `src/features.py` | Silvio | Candidate HMM feature classes (returns, vol, trend, correlation, bond dynamics) |
-| `src/regime.py` | Silvio | Gaussian HMM (EM/Baum-Welch), filtered/predicted/smoothed probabilities, BIC state-count selection |
-| `src/densities.py` | Silvio | M0 (pooled Student-t) / M1 (regime-mixture Student-t) predictive densities, shared ν |
-| `src/reliability.py` | Silvio | DMA π_t recursive update, weight blending, forgetting-factor selection |
-| `src/allocation_erc.py` | AnnaLisa & Nilay | ERC risk parity (baseline + regime-aware), shared risk-budgeting solver |
-| `src/allocation_hrp.py` | AnnaLisa & Nilay | Hierarchical Risk Parity (baseline + regime-aware) -- secondary robustness check on ERC's construction |
-| `src/allocation_lstm.py` | AnnaLisa & Nilay | LSTM → softmax risk budgets → shared risk-budgeting layer; Sharpe+turnover loss |
-| `src/constraints.py` | Nilay | Joint projection onto long-only/weight/turnover limits |
-| `src/evaluation.py` | Nilay | Sharpe/CAGR/MDD/Sortino/Calmar, block bootstrap, Deflated Sharpe Ratio |
-| `src/walkforward.py` | Nilay | Orchestrates all of the above per the M2 pseudocode's day-by-day ordering |
 
 ## Setup
 
@@ -84,215 +163,19 @@ corresponding tests skip cleanly rather than failing (see
 else — HMM, densities, reliability, ERC, constraints, evaluation, and
 the ERC-only walk-forward harness — does not depend on either package.
 
-## Known scope limitations (intentional, not oversights)
+## Reproducability
+Install the project dependencies in a compatible Python environment:
 
-- **Scheduled model refit is implemented**, expanding window through F(t),
-  with state alignment via Bhattacharyya distance + Hungarian assignment
-  for label continuity. Each refit's EM is warm-started from the previous
-  fit rather than a fresh random init (`refit_warm_start`, default True):
-  on the real ten-ETF universe, independent random inits landed in a
-  different-but-plausible local optimum most months, causing
-  `erc_regime`'s target weights/drawdown to whipsaw and making scheduled
-  refit underperform the frozen-parameter baseline. Warm-starting closed
-  most but not all of that gap; the rest came from refitting quarterly
-  rather than monthly (`refit_every_n_rebalances`, default 3) -- fewer
-  refits means fewer chances for the HMM to drift, and each refit sees
-  3x more new data. Two other mitigations were tried and measured
-  **not** to help on top of warm-starting, and are kept only as opt-in
-  toggles for reproducibility: EWMA-smoothing `state_covs` across refits
-  (`refit_state_cov_ewma`) made `erc_regime`'s Sharpe/drawdown worse, not
-  better -- diluting a state's covariance toward its own stale history
-  understates current risk right when regime identification is supposed
-  to matter; aligning every refit to a single fixed reference instead of
-  the previous fit (`refit_align_to_fixed_reference`) was a no-op --
-  once warm-starting keeps EM in the same basin, the alignment
-  permutation search never actually swaps states either way.
-- **Real price data.** `data.py::PriceDataset.from_csv_dir` loads real ETF
-  CSVs from `data/raw/` (one file per ticker, `Date`/`AdjClose` columns,
-  plus an optional `AdjOpen` column -- adjusted the same way as `AdjClose`
-  -- that enables next-session-open execution timing; without it the
-  harness falls back to same-close execution). `make_synthetic_universe`
-  still exists for building/testing the pipeline without real data.
-- **The LSTM allocator's end-to-end training loop is now implemented**
-  (`allocation_lstm.train_lstm_allocator`), through a genuinely
-  differentiable risk-budgeting layer
-  (`allocation_lstm.differentiable_risk_budget_layer`, via
-  `cvxpylayers`). It is the convex log-barrier reformulation of risk
-  budgeting (Spinu, 2013; Bai, Scheinberg & Tutuncu, 2016) that Uysal,
-  Li & Mulvey (2021) build their own differentiable layer on, chosen
-  over an ad hoc differentiable proxy specifically because its
-  first-order condition guarantees the (normalized) output's risk
-  contribution shares equal the input budgets exactly. That layer is
-  training-time only, deliberately with no `sum(w)==1` equality and no
-  per-asset upper-bound constraint inside the convex problem itself
-  (both were tried and measured to make the solver -- CLARABEL and SCS
-  alike -- converge to spurious boundary points rather than the true
-  optimum; see that function's docstring for the specific numbers). The
-  0.60 per-asset cap and turnover limit continue to apply only at
-  evaluation/backtest time, downstream of the *exact* (non-differentiable
-  SLSQP) solve in `allocation_erc.solve_risk_budget`, exactly as before.
-  While validating this, that exact solver was found to converge to a
-  local optimum on the real covariance for at least one plain
-  equal-budget ERC case (some assets pinned at zero weight despite a
-  positive target budget) -- a pre-existing property of its non-convex
-  squared-error objective, not something this change introduced, and
-  out of scope to fix here (see `budgets_to_weights_batch`'s docstring).
-  Training data assembly (`allocation_lstm.build_lstm_training_windows`)
-  uses one shared pooled covariance and one compounded holding-period
-  return per monthly rebalance, not a re-implementation of
-  `run_walk_forward`'s day-by-day scheduled-refit/regime-mixture-
-  covariance machinery.
-- **The LSTM is now reproducible run-to-run.** `RiskBudgetLSTM`'s weight
-  initialization previously depended on whatever state the global torch
-  RNG happened to be in, so re-running `run_real_data.py` produced a
-  genuinely different trained model (and materially different Sharpe --
-  e.g. baseline 0.808 vs 0.709 across two runs) each time, since nothing
-  seeded torch. `RiskBudgetLSTM` now takes `random_state` (default 123)
-  and calls `torch.manual_seed` immediately before constructing its
-  layers -- the only source of run-to-run randomness in
-  `train_lstm_allocator`, which has no dropout and trains full-batch
-  (no `DataLoader` shuffling). Pass `random_state=None` to opt back into
-  an unseeded run (e.g. for a seed-sensitivity robustness check).
-  **This reproducibility is within one pinned environment, not across
-  CPU architectures.** We verified directly (same seed, torch 2.11.0
-  vs 2.14.0, same machine) that `RiskBudgetLSTM`'s weight init and
-  forward pass are bit-identical across those torch versions on the
-  same CPU -- the frozen-LSTM Sharpe gap observed between Nilay's local
-  arm64 run and AnnaLisa's Colab (x86_64) run instead traces to CPU
-  architecture/BLAS differences (and the numpy/scipy-backed
-  `cvxpylayers` solve inside training), compounded over 200 epochs of
-  non-convex optimization -- see
-  `outputs/archive/m4_reference_run_baf2f0e/MANIFEST.md`'s
-  "Cross-environment numerical drift" section for the full isolation.
-  `requirements-reference-lock.txt` pins the group's shared reference
-  environment to Colab's exact versions (not this repo's own
-  `requirements.txt`, which floats); the canonical M4 run should be
-  *executed* on Colab, not merely installed with Colab's versions on a
-  different machine.
-- **The trained LSTM is now wired into `run_walk_forward`** as
-  `lstm_baseline`/`lstm_regime`/`lstm_blend` configs, via the opt-in
-  `lstm_models`/`lstm_feature_matrix` parameters (`allocation_lstm.
-  predict_budgets` does inference only against the same covariances ERC
-  uses each rebalance date; training itself stays outside the harness --
-  see `walkforward.py`'s module docstring). `scripts/run_real_data.py`
-  trains both variants on the initial training window only and passes
-  them in, so one harness run now produces all six M2 evaluation-table
-  configs plus the equal-weight benchmark. The LSTM models are never
-  retrained mid-walk (unlike the HMM/M0/M1, which refit quarterly) --
-  re-deriving an LSTM retrain schedule remains out of scope.
-- **HRP and per-regime ν are now implemented as secondary robustness
-  checks**, per M2's own scope note, via two more opt-in
-  `run_walk_forward` parameters: `include_hrp` (adds `hrp_baseline`/
-  `hrp_regime`/`hrp_blend` configs, `src/allocation_hrp.py`'s
-  quasi-diagonalization + recursive-bisection construction, against the
-  identical covariances ERC uses) and `per_regime_nu` (one M1 mixture
-  degrees-of-freedom per HMM state, `densities.fit_per_regime_nu`,
-  instead of one nu shared across every state). Neither is a new primary
-  allocator/density -- both are off by default and evaluated only via
-  `scripts/run_hrp_and_nu_robustness.py`, which compares each against
-  ERC's own regime/reliability effect on the real universe's final test.
-- **The DSR is reported as a disclosed sensitivity grid, not one
-  "primary" figure**, over both of its uncertain inputs jointly: the
-  cross-trial Sharpe variance and the effective number of trials K.
-  `outputs/trial_candidate_sharpes.csv` records the per-candidate
-  Sharpe value behind every `outputs/trial_log.csv`
-  `counts_toward_dsr_trials=True` row, with full source provenance --
-  no daily return path survives for any of them, only rounded summary
-  Sharpes (several only ever existed in a commit message, never a
-  saved CSV). `evaluation.build_dsr_sensitivity_scenarios` turns that
-  recovered set into several variance scenarios (pooled under a few
-  individually-defensible inclusion choices, and per coherent
-  evaluation-sample family -- e.g. the validation-only refit-cadence
-  comparison is internally comparable in a way that pooling it with
-  the final-test HRP/ERC check may not be) and several K scenarios
-  (literal logged trial count, deduped candidate count, coherent
-  search-family count), per Lopez de Prado & Porcu (2026)'s framing
-  that search-adjusted significance depends jointly on effective trial
-  count and cross-trial dispersion -- neither fixed while the other is
-  estimated. The conventional unit-variance value is included as one
-  scenario among several, not the default: neither Bailey & Lopez de
-  Prado (2014) nor the 2026 paper grounds it as a preferred fallback
-  when the actual cross-trial variance is uncertain.
-  `evaluation.dsr_sensitivity_grid` reports **three representations
-  side by side in every cell**, each explicitly labeled with the
-  assumptions it carries rather than described generically as "the"
-  2014 or 2026 DSR:
-  - **DSR-L** (`deflated_sharpe_ratio`, unchanged) -- the original
-    Bailey & Lopez de Prado (2014) formulation: a probability-valued,
-    search-adjusted significance statistic (PSR evaluated against the
-    search-adjusted benchmark mu_K instead of zero), *not* a Bayesian
-    posterior probability that the true Sharpe exceeds zero. Its scale
-    is `s_c`, the *observed series' own* skew/kurtosis-adjusted PSR
-    sampling SE; the 2026 paper's serial-dependence extension to `s_c`
-    is not implemented (the archived 5-bps daily returns show modest
-    lag-1 autocorrelation, ~-0.06 to +0.05, so this is unexercised
-    robustness work, not a response to a known problem).
-  - **DSR-LS, Gaussian reference** (`deflated_sharpe_ratio_ls_gaussian`)
-    -- under an explicit iid Gaussian candidate-search model, pairs the
-    search-adjusted location *and* scale (mu_K, sigma_K) -- the exact
-    Gaussian order-statistic moments via numerical integration of Lopez
-    de Prado & Porcu (2026)'s equations 23-24, verified to six decimals
-    against the paper's own published K=5/K=10 benchmarks -- with a
-    Gaussian reference shape. No skew/kurtosis adjustment: sigma_K is a
-    property of the search distribution, not of the observed series.
-  - **DSR-LS, standardized-Gumbel reference**
-    (`deflated_sharpe_ratio_ls_gumbel`) -- the *identical* (mu_K, sigma_K)
-    paired with the EVT-consistent standardized-Gumbel reference instead
-    (equations 29/54-56): since the Gaussian order-statistic maximum
-    lies in the Gumbel domain of attraction, this reference is
-    asymptotically calibrated as K grows, unlike the Gaussian reference
-    (which the paper shows has a 6.583% limiting rejection rate against
-    a nominal 5%). Neither reference uniformly dominates at the small K
-    this project's trial counts imply, so both are reported as disclosed
-    alternatives, not one replacing the other.
+pip install -r requirements.txt
+pytest tests/ -v
 
-  DSR-EO (the complete finite-sample search distribution) and a
-  standardized-Fréchet reference (the EVT-consistent choice under a
-  heavier-tailed Student-t search model, not the Gaussian one assumed
-  here) are both out of scope -- the surviving candidate summary
-  Sharpes cannot reconstruct the former, and there's no defensible
-  heavy-tailed search model motivating the latter. `run_real_data.py`
-  reports the resulting DSR-L/DSR-LS-Gaussian/DSR-LS-Gumbel ranges per
-  config and saves the full grid to
-  `outputs/real_data_dsr_sensitivity_grid.csv`. On the archived
-  reference run all three ranges are wide and config-independent
-  (driven almost entirely by the variance assumption, not by which
-  portfolio, and not by which representation or reference shape is
-  used) -- that instability is the reportable finding, not any single
-  cell.
+The reference environment is documented separately in requirements-reference-lock.txt. Running the full LSTM training pipeline on a different machine may produce different fitted networks even when the random seed is held fixed.
 
-## Next steps
+The frozen reference commit, archived data, and saved checkpoints identify the numerical results used in the M6 report. Subsequent experimental branches and post-reference verification files should not be confused with independent replications of the original study.
 
-Real ETF data, scheduled refit, the LSTM's differentiable training loop,
-the 2-state/no-VNQ/no-HYG robustness checks, the LSTM's wiring into
-`run_walk_forward`, and the HRP/per-regime-ν secondary robustness checks
-are all implemented and have been run on the real universe. What's left:
+## Project Status
 
-1. Merge this branch (and `feature/scheduled-refit`,
-   `feature/lstm-real-data-training`,
-   `feature/wire-lstm-and-hrp-nu-checks`) back into `main` once the
-   group has settled the open item below.
-2. **Settle the refit-cadence question before citing any final-test
-   number**: the quarterly default was selected by comparing Sharpe over
-   a sample that includes the 2019-2026-08 final-test window, not
-   validation-only evidence (see `outputs/trial_log.csv`, trial 6, and
-   the M3 draft's comments). Re-derive it on development/validation data
-   alone, revert to M2's monthly default, or explicitly reclassify
-   current results as exploratory -- pick one before M4.
-3. ~~Wire the trained LSTM allocator into `run_walk_forward`~~ -- done
-   (`lstm_baseline`/`lstm_regime`/`lstm_blend`, see "Known scope
-   limitations" above); `scripts/run_real_data.py` now produces all six
-   M2 evaluation-table configs plus the equal-weight benchmark from one
-   run.
-4. Feed the M3 lit review's regime-effect/reliability-effect/ML-
-   contribution analysis (see `docs/problem_statement.md`) with the
-   robustness-check numbers in `outputs/robustness_*.csv` (2-state HMM,
-   no-VNQ, no-HYG, HRP, per-regime ν, alongside the primary
-   3-state/full-universe run) — i.e. is the primary specification's
-   regime effect an artifact of the state count, one dominant ETF, the
-   ERC construction, or the shared-nu simplification, or does it hold up
-   across all specifications?
-5. ~~HRP and per-regime ν~~ -- done, as secondary robustness checks
-   (`include_hrp`/`per_regime_nu` on `run_walk_forward`, evaluated by
-   `scripts/run_hrp_and_nu_robustness.py`); see "Known scope
-   limitations" above.
+The M6 draft project report has been submitted. The frozen reference implementation and its principal numerical results are documented, with additional robustness and exploratory experiments maintained separately.
+
+Further work for the final report will focus on incorporating relevant evaluation feedback, explaining the limitations of the historical comparisons, and reporting robustness evidence without expanding the primary model specification unnecessarily.
+
