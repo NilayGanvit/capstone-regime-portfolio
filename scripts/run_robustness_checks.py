@@ -48,10 +48,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stage_labels  # noqa: E402
 from regime import bic_for_state_counts  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
-from constraints import ConstraintSpec, drift_weights  # noqa: E402
+from constraints import ConstraintSpec  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
-    herfindahl_concentration, average_turnover, block_bootstrap_diff_ci,
+    herfindahl_concentration, mean_rebalance_turnover, block_bootstrap_diff_ci,
 )
 
 SPECS = {
@@ -65,14 +65,12 @@ SPECS = {
 def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray) -> pd.DataFrame:
     """Final-test-only metrics (mask selects that stage's days), matching
     run_real_data.py's convention -- see that script for why validation
-    and final-test are never pooled into one figure."""
+    and final-test are never pooled into one figure. Turnover is the mean
+    per rebalance executed in that stage, as in run_real_data.py."""
+    period = [d for d, m in zip(result.dates, mask) if m]
     rows = []
     for config, r in result.portfolio_returns.items():
         w = result.weights[config]
-        w_drift = np.array([
-            drift_weights(w[i - 1] if i > 0 else w[0], np.exp(returns.to_numpy()[initial_window - 1 + i]))
-            for i in range(len(w))
-        ])
         rows.append({
             "config": config,
             "sharpe": round(sharpe_ratio(r[mask]), 3),
@@ -80,7 +78,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
             "calmar": round(calmar_ratio(r[mask]), 3),
-            "avg_turnover": round(average_turnover(w[mask], w_drift[mask]), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.execution_history[config], period), 4),
             "concentration_hhi": round(herfindahl_concentration(w[mask]), 4),
         })
     return pd.DataFrame(rows).set_index("config")

@@ -132,6 +132,17 @@ def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
     return float(np.mean(np.sum(np.abs(weights - drifted_weights), axis=1)))
 
 
+def mean_rebalance_turnover(execution_history: list, dates) -> float:
+    """Mean gross (round-trip) turnover per rebalance, over the trades that
+    execute on `dates` -- the same per-trade figures net_of_cost_returns
+    charges fees on. `execution_history` is one config's
+    WalkForwardResult.execution_history entry. NaN if no trade executes
+    on `dates`."""
+    dates = set(dates)
+    trades = [entry["turnover"] for entry in execution_history if entry["date"] in dates]
+    return float(np.mean(trades)) if trades else float("nan")
+
+
 
 def optimal_stationary_block_length(x: np.ndarray) -> float:
     """Estimate the optimal expected block length for the stationary bootstrap.
