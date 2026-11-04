@@ -74,7 +74,7 @@ def main() -> None:
             "max_drawdown": round(max_drawdown(r), 4),
             "sortino": round(sortino_ratio(r), 3),
             "calmar": round(calmar_ratio(r), 3),
-            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.execution_history[config], result.dates), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.binding_constraints_history[config], result.dates), 4),
             "concentration_hhi": round(herfindahl_concentration(w), 4),
         })
     summary = pd.DataFrame(rows).set_index("config")

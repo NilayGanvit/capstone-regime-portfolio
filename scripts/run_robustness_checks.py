@@ -66,7 +66,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
     """Final-test-only metrics (mask selects that stage's days), matching
     run_real_data.py's convention -- see that script for why validation
     and final-test are never pooled into one figure. Turnover is the mean
-    per rebalance executed in that stage, as in run_real_data.py."""
+    per rebalancing decision in that stage, as in run_real_data.py."""
     period = [d for d, m in zip(result.dates, mask) if m]
     rows = []
     for config, r in result.portfolio_returns.items():
@@ -78,7 +78,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
             "calmar": round(calmar_ratio(r[mask]), 3),
-            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.execution_history[config], period), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.binding_constraints_history[config], period), 4),
             "concentration_hhi": round(herfindahl_concentration(w[mask]), 4),
         })
     return pd.DataFrame(rows).set_index("config")

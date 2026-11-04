@@ -217,7 +217,7 @@ def cost_sensitivity_table(result, stages: pd.Series, risk_free_daily: np.ndarra
 def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray, risk_free_daily: np.ndarray) -> pd.DataFrame:
     """Metrics for the subset of walk-forward days selected by `mask`
     (boolean array aligned with result.dates). Turnover is the mean gross
-    turnover per rebalance executed on those days, from the execution log
+    turnover of the rebalancing decisions dated on those days, the figures
     transaction costs are charged on (evaluation.mean_rebalance_turnover).
     Sharpe is on excess returns over `risk_free_daily`
     (data.load_risk_free_daily), aligned to result.dates and sliced the
@@ -237,7 +237,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
             "calmar": round(calmar_ratio(r[mask]), 3),
-            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.execution_history[config], period), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.binding_constraints_history[config], period), 4),
             "concentration_hhi": round(herfindahl_concentration(w[mask]), 4),
         })
     return pd.DataFrame(rows).set_index("config")

@@ -132,14 +132,15 @@ def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
     return float(np.mean(np.sum(np.abs(weights - drifted_weights), axis=1)))
 
 
-def mean_rebalance_turnover(execution_history: list, dates) -> float:
-    """Mean gross (round-trip) turnover per rebalance, over the trades that
-    execute on `dates` -- the same per-trade figures net_of_cost_returns
-    charges fees on. `execution_history` is one config's
-    WalkForwardResult.execution_history entry. NaN if no trade executes
-    on `dates`."""
+def mean_rebalance_turnover(binding_history: list, dates) -> float:
+    """Mean gross (round-trip) turnover per rebalancing decision dated on
+    `dates`, measured at the decision close against the drifted holdings --
+    the same per-trade figures net_of_cost_returns charges fees on when the
+    trade executes. `binding_history` is one config's
+    WalkForwardResult.binding_constraints_history entry, dated by decision
+    like the binding-constraint counts. NaN if no decision falls on `dates`."""
     dates = set(dates)
-    trades = [entry["turnover"] for entry in execution_history if entry["date"] in dates]
+    trades = [entry["turnover"] for entry in binding_history if entry["date"] in dates]
     return float(np.mean(trades)) if trades else float("nan")
 
 
