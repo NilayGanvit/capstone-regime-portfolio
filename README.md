@@ -125,7 +125,7 @@ Results from these experiments should be interpreted with their documented valid
 | [`src/`](src/) | Data processing, regime estimation, predictive densities, reliability modeling, portfolio allocation, and evaluation |
 | [`scripts/`](scripts/) | Reference runs, robustness experiments, diagnostics, and verification utilities |
 | [`tests/`](tests/) | Unit, integration, solver, and portfolio-accounting tests |
-| [`data/raw/`](data/raw/) | Archived ETF prices and risk-free-rate data |
+| [`data/raw/`](data/raw/) | Input folder for the ETF prices and risk-free rate (not tracked; see [Data](#data)) |
 | [`outputs/`](outputs/) | Model results, diagnostics, robustness analyses, and archived outputs |
 | [`outputs/verification/m6_implementation/`](outputs/verification/m6_implementation/) | Turnover, transaction-cost, and return-attribution verification |
 | [`docs/`](docs/) | Methodology, experiment documentation, and verification records |
@@ -163,19 +163,115 @@ corresponding tests skip cleanly rather than failing (see
 else — HMM, densities, reliability, ERC, constraints, evaluation, and
 the ERC-only walk-forward harness — does not depend on either package.
 
-## Reproducability
-Install the project dependencies in a compatible Python environment:
+## Reproducibility
 
-pip install -r requirements.txt
-pytest tests/ -v
+### Which code produced the reported results
 
-The reference environment is documented separately in requirements-reference-lock.txt. Running the full LSTM training pipeline on a different machine may produce different fitted networks even when the random seed is held fixed.
+| Run | Commit | Archive | Report |
+|:---|:---|:---|:---|
+| M6 reference run (seed 123) | `6a6b12de19b567ba7c1feda10bd5423cd72b5e23` | [`outputs/archive/m6_reference_run_6a6b12d/`](outputs/archive/m6_reference_run_6a6b12d/) | Tables 5 and 6, Figure 4, DSR |
+| Ten LSTM seeds on the final pipeline | `c1e59fa53f779151e15554773befdd6b7845fa53` | [`outputs/archive/m7_ten_seed_final_pipeline_c1e59fa/`](outputs/archive/m7_ten_seed_final_pipeline_c1e59fa/) | Table 7 |
+| Fixed versus quarterly-retrained LSTM | `32a56f84780b9dee7d225486fb7f7cb1b3185613` | [`outputs/archive/m7_quarterly_lstm_retraining_32a56f8/`](outputs/archive/m7_quarterly_lstm_retraining_32a56f8/) | Appendix A.1 |
 
-The frozen reference commit, archived data, and saved checkpoints identify the numerical results used in the M6 report. Subsequent experimental branches and post-reference verification files should not be confused with independent replications of the original study.
+The two M7 commits add a runner under `scripts/verification/` and leave `src/`,
+`scripts/run_real_data.py` and the lock file identical to `6a6b12d`. Each archive has a
+`MANIFEST.md` with its environment, settings and the checks it passed; both M7 runs reproduce the
+seed-123 checkpoints and returns of the M6 run. The two M7 designs are pre-registered in
+[`docs/verification/`](docs/verification/).
+
+After M6 the summary table's turnover column was corrected: it averaged a daily figure that
+counted price drift as turnover. It now reports mean turnover per monthly rebalancing decision,
+the figure transaction costs are charged on. Costs, returns and every other column are
+unchanged. The archived `real_data_summary.csv` still has the old `avg_turnover` column, so Table
+5's turnover is taken from the archived binding-constraint files (see the table below).
+
+The top-level `outputs/real_data_*.csv` files are not the M6 run's outputs; cite the archive.
+Running `scripts/run_real_data.py` rewrites those top-level files.
+
+### Data
+
+The ten ETF price files are not tracked. They were downloaded from Yahoo Finance with `yfinance`
+on 2026-09-23 and are kept on the team's shared Drive (`Code/data/raw`). Copy `SPY.csv` ...
+`VNQ.csv` into `data/raw/` and check them against the SHA-256 hashes in
+`outputs/archive/m6_reference_run_6a6b12d/run_manifest.json`. A fresh download will not match,
+because Yahoo revises adjusted prices. Use the archived risk-free file (FRED DGS3MO):
+
+```bash
+cp outputs/archive/frozen_reference_5pct_bb46b63/data/risk_free_DGS3MO_daily.csv data/raw/
+```
+
+### Environment
+
+LSTM training is not reproducible across machines: the same seed gives different networks on a
+Mac (arm64) and on Colab (x86_64). The reference runs used a Google Colab CPU runtime (x86_64,
+Python 3.13) with:
+
+```bash
+pip install torch==2.11.0+cpu --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-reference-lock.txt diffcp==1.1.9
+```
+
+Everything that does not train an LSTM (ERC, equal weight, the HMM, the reliability weights, the
+robustness checks and inference from the archived checkpoints) reproduces on any machine.
+
+### Running
+
+```bash
+git checkout 6a6b12d
+python scripts/run_real_data.py                                 # M6 reference run, about 15 minutes on Colab
+git checkout c1e59fa
+python scripts/verification/run_ten_seed_final_pipeline.py --seed 123   # then --seed 0 ... --seed 9
+python scripts/verification/run_ten_seed_final_pipeline.py --merge
+git checkout 32a56f8
+python scripts/verification/run_quarterly_lstm_retraining.py   # about 2.5 hours on Colab
+git checkout 2452a05
+python scripts/run_robustness_checks.py                         # Appendix A.2-A.3, ERC only, any machine
+```
+
+The robustness tables in Appendix A.2-A.3 were generated at `2452a05`, which has the corrected
+turnover column; running the script at `6a6b12d` gives the same values in every other column.
+The robustness CSVs committed at `6a6b12d` itself are older and predate the exact solver.
+
+To check the reported LSTM returns without retraining, replay the archived networks:
+
+```bash
+python scripts/verification/check_replay_against_archive.py \
+  --baseline outputs/archive/m6_reference_run_6a6b12d/lstm_checkpoints/seed123_baseline.pt \
+  --regime outputs/archive/m6_reference_run_6a6b12d/lstm_checkpoints/seed123_regime.pt \
+  --archived outputs/archive/m6_reference_run_6a6b12d/csv/real_data_rq_net_returns_5bps.csv \
+  --solver exact
+```
+
+### Where each reported result comes from
+
+`M6/` is `outputs/archive/m6_reference_run_6a6b12d/csv/`.
+
+| Report | File | Produced by |
+|:---|:---|:---|
+| Table 3, HMM refit cadence | `outputs/refit_cadence_solver_check_exact.csv` (the original SLSQP comparison: `refit_cadence_solver_check_slsqp.csv`, `refit_cadence_validation_comparison.csv`) | `scripts/verification/refit_cadence_solver_check.py` |
+| Table 4, LSTM budget stability | `outputs/bounded_softmax_u050_200epoch_vs_ordinary_softmax.csv` and `bounded_softmax_u050_200epoch_seed_stability_*.csv` | outputs only; the script is not in the repository |
+| Section 3.5, 2.5% versus 5% floor | `outputs/lstm_floor_solver_check.csv` | `scripts/verification/lstm_floor_solver_check.py` |
+| Section 3.3, SLSQP zero-weight dates | `outputs/erc_solver_audit.csv` | `scripts/verification/audit_erc_solver.py` |
+| Table 5, Sharpe and CAGR at 5/10/25 bps; Figure 4 | `M6/real_data_cost_sensitivity.csv` | M6 reference run |
+| Table 5, maximum drawdown and HHI | `M6/real_data_summary.csv` | M6 reference run |
+| Table 5, turnover; Section 3.6, binding counts | `M6/real_data_binding_constraints_<config>.csv`: mean of `turnover`, and counts of the binding columns, over the 92 decisions | M6 reference run |
+| Table 6 | `M6/real_data_rq_stationary_bootstrap.csv` (return series: `real_data_rq_excess_returns_5bps.csv`) | M6 reference run |
+| Section 4.1, reliability path | `M6/real_data_pi_path.csv` | M6 reference run |
+| Section 4.4, DSR | `M6/real_data_dsr_sensitivity_grid.csv`, `outputs/trial_log.csv`, `outputs/trial_candidate_sharpes.csv` | M6 reference run |
+| Table 7 | `ten_seed_rq_distribution.csv`, `ten_seed_rq_per_seed.csv`, `ten_seed_averaged_rq.csv` in the ten-seed archive | `scripts/verification/run_ten_seed_final_pipeline.py` |
+| Section 5, exact-solver replay of the ten archived seeds | `outputs/ten_seed_corrected_bootstrap.csv` | `scripts/verification/ten_seed_corrected_bootstrap.py` |
+| Sections 3.6 and 5, opening turnover, strict cap, return attribution | `outputs/verification/m6_implementation/` | see its README |
+| Section 3.7, risk-free convention | `docs/verification/risk_free_convention.md` | |
+| Appendix A.1 | `lstm_fixed_vs_quarterly_performance.csv`, `lstm_quarterly_minus_fixed_bootstrap.csv`, `rq_contrasts_by_arm.csv` in the quarterly archive | `scripts/verification/run_quarterly_lstm_retraining.py` |
+| Appendix A.2, excluding HYG | `outputs/robustness_no_hyg_summary.csv` | `scripts/run_robustness_checks.py` |
+| Appendix A.3, two-state HMM | `outputs/robustness_2state_summary.csv`, `robustness_primary_3state_summary.csv`, `robustness_regime_effect_by_spec.csv` | `scripts/run_robustness_checks.py` |
+
+Subsequent experimental branches and post-reference verification files should not be confused
+with independent replications of the original study.
 
 ## Project Status
 
-The M6 draft project report has been submitted. The frozen reference implementation and its principal numerical results are documented, with additional robustness and exploratory experiments maintained separately.
-
-Further work for the final report will focus on incorporating relevant evaluation feedback, explaining the limitations of the historical comparisons, and reporting robustness evidence without expanding the primary model specification unnecessarily.
+The final (M7) report adds the ten-seed rerun, quarterly LSTM retraining, and the
+excluding-HYG and two-state robustness results to the M6 reference results. The primary
+specification is unchanged.
 
