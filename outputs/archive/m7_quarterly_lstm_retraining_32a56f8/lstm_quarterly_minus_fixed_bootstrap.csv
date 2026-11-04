@@ -1,0 +1,7 @@
+period,config,quarterly_minus_fixed,ci_low,ci_high
+validation 2015-2018,lstm_baseline,0.0195212,-0.138295,0.188197
+validation 2015-2018,lstm_regime,0.0333365,-0.141683,0.213303
+validation 2015-2018,lstm_blend,0.0333447,-0.141675,0.213302
+final test 2019-2026,lstm_baseline,0.0186361,-0.14859,0.192879
+final test 2019-2026,lstm_regime,-0.0694698,-0.235545,0.0938265
+final test 2019-2026,lstm_blend,-0.0587443,-0.229827,0.118401

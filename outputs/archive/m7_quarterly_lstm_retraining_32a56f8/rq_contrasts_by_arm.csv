@@ -1,0 +1,11 @@
+arm,contrast,point_estimate,ci_low,ci_high
+fixed,rq1_erc_regime_effect,-0.000564543,-0.0825857,0.0780715
+fixed,rq1_lstm_regime_effect,-0.100785,-0.215793,0.0137633
+fixed,rq2_difference_in_differences,-0.100221,-0.193246,-0.0114983
+fixed,rq3_erc_reliability_effect,0.00345709,-0.000104514,0.0101658
+fixed,rq3_lstm_reliability_effect,0.00824517,-0.00160425,0.0272012
+quarterly,rq1_erc_regime_effect,-0.000564543,-0.0825857,0.0780715
+quarterly,rq1_lstm_regime_effect,-0.188891,-0.369973,0.00733965
+quarterly,rq2_difference_in_differences,-0.188326,-0.371357,-0.0138454
+quarterly,rq3_erc_reliability_effect,0.00345709,-0.000104514,0.0101658
+quarterly,rq3_lstm_reliability_effect,0.0189707,-0.00564349,0.0659036

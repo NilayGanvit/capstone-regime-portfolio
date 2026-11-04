@@ -1,0 +1,65 @@
+{
+  "run_id": "20261102T080702Z_1cd487",
+  "smoke": false,
+  "seed": 123,
+  "retrain_every_n_rebalances": 3,
+  "quarterly_options": {
+    "lstm_retrain_every_n_rebalances": 3
+  },
+  "initial_epochs": 200,
+  "n_quarterly_retrains": 47,
+  "checkpoint_sha256": {
+    "baseline": "aa328280e9389ca5cc9d27f36ae3530f86e7ec6e0043afcafd5253a2b7c607b2",
+    "regime": "757819e84af76439dfec8766be5bb25d4f47b78edc6ac3337bf076e92596b616"
+  },
+  "check": {
+    "fixed_arm_worst_daily_diff_vs_m6": {
+      "erc_baseline": 9.990923019453923e-17,
+      "erc_regime": 9.985502008591496e-17,
+      "erc_blend": 9.985502008591496e-17,
+      "lstm_baseline": 9.974659986866641e-17,
+      "lstm_regime": 9.985502008591496e-17,
+      "lstm_blend": 9.990923019453923e-17,
+      "equal_weight": 2.3678975447083417e-16
+    },
+    "tolerance": {
+      "erc_baseline": 1e-08,
+      "erc_regime": 1e-08,
+      "erc_blend": 1e-08,
+      "lstm_baseline": 1e-07,
+      "lstm_regime": 1e-07,
+      "lstm_blend": 1e-07,
+      "equal_weight": 1e-08
+    },
+    "checkpoint_hashes_match_m6": {
+      "baseline": true,
+      "regime": true
+    },
+    "passes": true
+  },
+  "timing": {
+    "initial_training_seconds": 343.1,
+    "fixed_walk_seconds": 695.3,
+    "quarterly_walk_seconds": 8210.7
+  },
+  "git": {
+    "commit": "32a56f84780b9dee7d225486fb7f7cb1b3185613",
+    "branch": "HEAD",
+    "uncommitted_files": []
+  },
+  "environment": {
+    "python": "3.13.18",
+    "platform": "Linux-6.6.159+-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "packages": {
+      "numpy": "2.1.3",
+      "pandas": "2.2.3",
+      "scipy": "1.16.3",
+      "scikit-learn": "1.6.1",
+      "torch": "2.11.0+cpu",
+      "cvxpy": "1.9.3",
+      "cvxpylayers": "1.2.0",
+      "diffcp": "1.1.9"
+    }
+  }
+}

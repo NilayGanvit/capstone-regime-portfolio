@@ -1,0 +1,61 @@
+LSTM baseline: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM baseline: trained in 170.7s, loss -0.5639 -> -1.1813
+LSTM regime: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM regime: trained in 166.2s, loss -0.5726 -> -1.2290
+fixed arm done in 695.3s
+quarterly arm done in 8210.7s, 47 retrains
+
+Run folder: /content/capstone_runs/qretrain_20261102T080411Z_512dec7f/repository/outputs/verification/quarterly_lstm_retraining/20261102T080702Z_1cd487
+Check (fixed arm reproduces M6): {
+  "fixed_arm_worst_daily_diff_vs_m6": {
+    "erc_baseline": 9.990923019453923e-17,
+    "erc_regime": 9.985502008591496e-17,
+    "erc_blend": 9.985502008591496e-17,
+    "lstm_baseline": 9.974659986866641e-17,
+    "lstm_regime": 9.985502008591496e-17,
+    "lstm_blend": 9.990923019453923e-17,
+    "equal_weight": 2.3678975447083417e-16
+  },
+  "tolerance": {
+    "erc_baseline": 1e-08,
+    "erc_regime": 1e-08,
+    "erc_blend": 1e-08,
+    "lstm_baseline": 1e-07,
+    "lstm_regime": 1e-07,
+    "lstm_blend": 1e-07,
+    "equal_weight": 1e-08
+  },
+  "checkpoint_hashes_match_m6": {
+    "baseline": true,
+    "regime": true
+  },
+  "passes": true
+}
+      arm               period        config  sharpe_net_5bps  sharpe_net_25bps  cagr_net_5bps  max_drawdown_net_5bps  mean_turnover_per_rebalance  turnover_binding_rebalances  lstm_retrains_in_period
+    fixed validation 2015-2018 lstm_baseline           0.3872            0.3465         0.0287                -0.0835                       0.0985                            6                        0
+    fixed validation 2015-2018   lstm_regime           0.3283            0.2691         0.0258                -0.0940                       0.1434                           11                        0
+    fixed validation 2015-2018    lstm_blend           0.3283            0.2691         0.0258                -0.0940                       0.1434                           11                        0
+    fixed final test 2019-2026 lstm_baseline           0.5403            0.5171         0.0741                -0.2149                       0.0831                            7                        0
+    fixed final test 2019-2026   lstm_regime           0.4395            0.3993         0.0645                -0.2387                       0.1480                            8                        0
+    fixed final test 2019-2026    lstm_blend           0.4477            0.4068         0.0652                -0.2391                       0.1508                            9                        0
+quarterly validation 2015-2018 lstm_baseline           0.4067            0.3444         0.0294                -0.0761                       0.1482                           10                       16
+quarterly validation 2015-2018   lstm_regime           0.3617            0.2778         0.0280                -0.0977                       0.2098                           24                       16
+quarterly validation 2015-2018    lstm_blend           0.3617            0.2777         0.0280                -0.0977                       0.2098                           24                       16
+quarterly final test 2019-2026 lstm_baseline           0.5589            0.5188         0.0752                -0.2236                       0.1454                           33                       30
+quarterly final test 2019-2026   lstm_regime           0.3700            0.3122         0.0594                -0.2270                       0.2228                           45                       30
+quarterly final test 2019-2026    lstm_blend           0.3890            0.3307         0.0612                -0.2277                       0.2243                           45                       30
+              period        config  quarterly_minus_fixed  ci_low  ci_high
+validation 2015-2018 lstm_baseline                 0.0195 -0.1383   0.1882
+validation 2015-2018   lstm_regime                 0.0333 -0.1417   0.2133
+validation 2015-2018    lstm_blend                 0.0333 -0.1417   0.2133
+final test 2019-2026 lstm_baseline                 0.0186 -0.1486   0.1929
+final test 2019-2026   lstm_regime                -0.0695 -0.2355   0.0938
+final test 2019-2026    lstm_blend                -0.0587 -0.2298   0.1184
+arm                             fixed  quarterly
+contrast                                        
+rq1_erc_regime_effect         -0.0006    -0.0006
+rq1_lstm_regime_effect        -0.1008    -0.1889
+rq2_difference_in_differences -0.1002    -0.1883
+rq3_erc_reliability_effect     0.0035     0.0035
+rq3_lstm_reliability_effect    0.0082     0.0190
+Timing: {'initial_training_seconds': 343.1, 'fixed_walk_seconds': 695.3, 'quarterly_walk_seconds': 8210.7}
