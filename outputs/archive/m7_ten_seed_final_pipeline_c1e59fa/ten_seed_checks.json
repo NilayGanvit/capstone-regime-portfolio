@@ -1,0 +1,114 @@
+{
+  "smoke": false,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "check1_control": {
+    "checkpoint_hashes_match_m6": {
+      "baseline": true,
+      "regime": true
+    },
+    "rq_worst_abs_diff_vs_m6": 4.416630949855005e-11,
+    "passes": true
+  },
+  "check2_archive": {
+    "per_seed": {
+      "0": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 1.173160000048079e-08
+      },
+      "1": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 2.27940000034621e-09
+      },
+      "2": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 5.069461800004231e-09
+      },
+      "3": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 1.5640800000646382e-09
+      },
+      "4": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 1.309500000101771e-08
+      },
+      "5": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 3.967420000167143e-09
+      },
+      "6": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 4.209899999788047e-09
+      },
+      "7": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 3.851430000010453e-09
+      },
+      "8": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 7.597900000128055e-10
+      },
+      "9": {
+        "baseline_identical": true,
+        "regime_identical": true,
+        "baseline_worst_abs_diff": 0.0,
+        "regime_worst_abs_diff": 0.0,
+        "replay_worst_abs_diff": 2.1408400000672012e-09
+      }
+    },
+    "seeds_identical_to_archive": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "replay_within_1e-7": true
+  },
+  "erc_and_1n_identical_across_seeds": true,
+  "reading": {
+    "rq2_depends_on_initialization": true
+  }
+}

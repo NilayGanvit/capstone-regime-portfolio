@@ -1,0 +1,5 @@
+LSTM baseline: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM baseline: trained in 165.1s, loss -0.5614 -> -1.2858
+LSTM regime: 80 training windows, 2008-04-30 to 2014-11-28
+LSTM regime: trained in 165.7s, loss -0.5307 -> -1.2358
+seed 6: done (training 337s, walk-forward 714s)

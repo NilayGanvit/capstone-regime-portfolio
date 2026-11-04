@@ -1,0 +1,8 @@
+seed,config,sharpe_net_5bps
+6,erc_baseline,0.224642419
+6,erc_regime,0.2214362728
+6,erc_blend,0.2214219258
+6,equal_weight,0.2328595712
+6,lstm_baseline,0.3371897187
+6,lstm_regime,0.2869118424
+6,lstm_blend,0.2868133294

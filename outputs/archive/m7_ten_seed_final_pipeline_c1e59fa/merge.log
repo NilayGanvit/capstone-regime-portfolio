@@ -1,0 +1,58 @@
+{
+  "smoke": false,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "check1_control": {
+    "checkpoint_hashes_match_m6": {
+      "baseline": true,
+      "regime": true
+    },
+    "rq_worst_abs_diff_vs_m6": 4.416630949855005e-11,
+    "passes": true
+  },
+  "erc_and_1n_identical_across_seeds": true,
+  "reading": {
+    "rq2_depends_on_initialization": true
+  }
+}
+Seeds identical to the archive: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] | replay within 1e-7: True
+
+Per seed (final test, 5 bps net excess):
+contrast  rq1_erc_regime_effect  rq1_lstm_regime_effect  rq2_difference_in_differences  rq3_erc_reliability_effect  rq3_lstm_reliability_effect
+seed                                                                                                                                           
+0                        -0.001                   0.178                          0.179                       0.003                        0.022
+1                        -0.001                   0.133                          0.134                       0.003                        0.004
+2                        -0.001                  -0.022                         -0.021                       0.003                       -0.010
+3                        -0.001                   0.118                          0.118                       0.003                       -0.025
+4                        -0.001                   0.071                          0.071                       0.003                       -0.007
+5                        -0.001                   0.070                          0.070                       0.003                        0.009
+6                        -0.001                  -0.002                         -0.001                       0.003                       -0.007
+7                        -0.001                   0.036                          0.037                       0.003                       -0.006
+8                        -0.001                  -0.049                         -0.049                       0.003                       -0.001
+9                        -0.001                  -0.001                         -0.001                       0.003                       -0.009
+
+Distribution over seeds 0-9:
+                     contrast  seeds   mean  median    q25    q75    min    max  positive  negative  interval_above_zero  interval_below_zero  seed_123  seed_123_rank_of_11
+        rq1_erc_regime_effect     10 -0.001  -0.001 -0.001 -0.001 -0.001 -0.001         0        10                    0                    0    -0.001                   11
+       rq1_lstm_regime_effect     10  0.053   0.053 -0.002  0.106 -0.049  0.178         6         4                    0                    0    -0.101                    1
+rq2_difference_in_differences     10  0.054   0.054 -0.001  0.107 -0.049  0.179         6         4                    0                    0    -0.100                    1
+   rq3_erc_reliability_effect     10  0.003   0.003  0.003  0.003  0.003  0.003        10         0                    0                    0     0.003                   11
+  rq3_lstm_reliability_effect     10 -0.003  -0.007 -0.008  0.003 -0.025  0.022         3         7                    0                    0     0.008                    9
+
+Seed-averaged LSTM:
+         seed                      contrast  point_estimate  ci_low  ci_high  expected_block_length
+seed-averaged         rq1_erc_regime_effect          -0.001  -0.083    0.078                  4.114
+seed-averaged        rq1_lstm_regime_effect           0.059  -0.063    0.173                  2.258
+seed-averaged rq2_difference_in_differences           0.060  -0.032    0.146                 10.272
+seed-averaged    rq3_erc_reliability_effect           0.003  -0.000    0.010                 55.331
+seed-averaged   rq3_lstm_reliability_effect          -0.003  -0.008    0.001                 37.599

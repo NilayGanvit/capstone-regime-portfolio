@@ -1,0 +1,51 @@
+{
+  "seed": 6,
+  "smoke": false,
+  "settings": {
+    "lstm_seed": 6,
+    "lstm_budget_floor": 0.05,
+    "lstm_epochs": 200,
+    "lstm_seq_len": 60,
+    "lstm_cov_window": 252,
+    "n_states": 3,
+    "risk_budget_solver": "exact",
+    "headline_fee_bps": 5.0,
+    "fee_bps_sensitivity": [
+      5.0,
+      10.0,
+      25.0
+    ],
+    "risk_free": "FRED DGS3MO, lagged one observation, compounded over 252 periods (data.build_risk_free_daily)",
+    "initial_training_end": "2014-12-31",
+    "validation_end": "2018-12-31",
+    "final_test_end": "2026-08-31"
+  },
+  "git": {
+    "commit": "c1e59fa53f779151e15554773befdd6b7845fa53",
+    "branch": "HEAD",
+    "uncommitted_files": [
+      "outputs/verification/ten_seed_final_pipeline/"
+    ]
+  },
+  "environment": {
+    "python": "3.13.18",
+    "platform": "Linux-6.6.159+-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "packages": {
+      "numpy": "2.1.3",
+      "pandas": "2.2.3",
+      "scipy": "1.16.3",
+      "scikit-learn": "1.6.1",
+      "torch": "2.11.0+cpu",
+      "cvxpy": "1.9.3",
+      "cvxpylayers": "1.2.0",
+      "diffcp": "1.1.9"
+    }
+  },
+  "checkpoint_sha256": {
+    "baseline": "1966d3ef5e668950adb7cb6f369ddb2656ad17e969586d40a1cda803122af50d",
+    "regime": "7ee6dbc3ec3c86d3e950b1292c6aa599495c42c099670628ed7aaa7ff1d0ea6c"
+  },
+  "train_seconds": 337.1,
+  "walk_seconds": 713.9
+}
