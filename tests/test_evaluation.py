@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from evaluation import (
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
-    herfindahl_concentration, average_turnover, block_bootstrap_diff_ci,
+    herfindahl_concentration, average_turnover, mean_rebalance_turnover, block_bootstrap_diff_ci,
     deflated_sharpe_ratio, net_of_cost_returns, n_trials_from_log,
     optimal_stationary_block_length,
     stationary_bootstrap_indices,
@@ -81,6 +81,12 @@ def test_herfindahl_bounds():
 def test_average_turnover_zero_when_no_trading():
     w = np.tile(np.full(5, 0.2), (10, 1))
     assert np.isclose(average_turnover(w, w), 0.0)
+
+
+def test_mean_rebalance_turnover_counts_only_trades_executed_in_period():
+    history = [{"date": 1, "turnover": 0.1}, {"date": 5, "turnover": 0.3}, {"date": 9, "turnover": 0.2}]
+    assert np.isclose(mean_rebalance_turnover(history, [4, 5, 6, 9]), 0.25)
+    assert np.isnan(mean_rebalance_turnover(history, [2, 3]))
 
 
 

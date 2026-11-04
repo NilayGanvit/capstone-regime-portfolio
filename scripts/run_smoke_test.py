@@ -38,10 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from data import make_synthetic_universe  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
-from constraints import ConstraintSpec, drift_weights  # noqa: E402
+from constraints import ConstraintSpec  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
-    herfindahl_concentration, average_turnover, block_bootstrap_diff_ci,
+    herfindahl_concentration, mean_rebalance_turnover, block_bootstrap_diff_ci,
 )
 
 
@@ -67,10 +67,6 @@ def main() -> None:
     rows = []
     for config, r in result.portfolio_returns.items():
         w = result.weights[config]
-        w_drift = np.array([
-            drift_weights(w[i - 1] if i > 0 else w[0], np.exp(returns.to_numpy()[251 + i]))
-            for i in range(len(w))
-        ])
         rows.append({
             "config": config,
             "sharpe": round(sharpe_ratio(r), 3),
@@ -78,7 +74,7 @@ def main() -> None:
             "max_drawdown": round(max_drawdown(r), 4),
             "sortino": round(sortino_ratio(r), 3),
             "calmar": round(calmar_ratio(r), 3),
-            "avg_turnover": round(average_turnover(w, w_drift), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.binding_constraints_history[config], result.dates), 4),
             "concentration_hhi": round(herfindahl_concentration(w), 4),
         })
     summary = pd.DataFrame(rows).set_index("config")

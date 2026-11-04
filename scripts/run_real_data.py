@@ -104,10 +104,10 @@ from data import PriceDataset, UNIVERSE, M2Calendar, initial_window_length, stag
 from lstm_training import train_lstm_variants, save_checkpoint  # noqa: E402
 from run_provenance import git_state, write_run_manifest  # noqa: E402
 from walkforward import run_walk_forward  # noqa: E402
-from constraints import ConstraintSpec, drift_weights  # noqa: E402
+from constraints import ConstraintSpec  # noqa: E402
 from evaluation import (  # noqa: E402
     sharpe_ratio, cagr, max_drawdown, sortino_ratio, calmar_ratio,
-    herfindahl_concentration, average_turnover,
+    herfindahl_concentration, mean_rebalance_turnover,
     net_of_cost_returns, stationary_bootstrap_rq_contrasts,
     build_dsr_sensitivity_scenarios, dsr_grid_dataframe,
 )
@@ -216,19 +216,18 @@ def cost_sensitivity_table(result, stages: pd.Series, risk_free_daily: np.ndarra
 
 def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarray, risk_free_daily: np.ndarray) -> pd.DataFrame:
     """Metrics for the subset of walk-forward days selected by `mask`
-    (boolean array aligned with result.dates), using each config's own
-    drifted (pre-trade) weights as the turnover reference -- identical to
-    average_turnover's definition elsewhere in the harness. Sharpe is on
-    excess returns over `risk_free_daily` (data.load_risk_free_daily),
-    aligned to result.dates and sliced the same way as `r`."""
+    (boolean array aligned with result.dates). Turnover is the mean gross
+    turnover of the rebalancing decisions dated on those days, the figures
+    transaction costs are charged on (evaluation.mean_rebalance_turnover).
+    Sharpe is on excess returns over `risk_free_daily`
+    (data.load_risk_free_daily), aligned to result.dates and sliced the
+    same way as `r`. `returns` and `initial_window` are no longer used and
+    are kept so existing callers still work."""
     rf = risk_free_daily[mask]
+    period = [d for d, m in zip(result.dates, mask) if m]
     rows = []
     for config, r in result.portfolio_returns.items():
         w = result.weights[config]
-        w_drift = np.array([
-            drift_weights(w[i - 1] if i > 0 else w[0], np.exp(returns.to_numpy()[initial_window - 1 + i]))
-            for i in range(len(w))
-        ])
         rows.append({
             "config": config,
             "n_days": int(mask.sum()),
@@ -238,7 +237,7 @@ def summarize(result, returns: pd.DataFrame, initial_window: int, mask: np.ndarr
             "max_drawdown": round(max_drawdown(r[mask]), 4),
             "sortino": round(sortino_ratio(r[mask]), 3),
             "calmar": round(calmar_ratio(r[mask]), 3),
-            "avg_turnover": round(average_turnover(w[mask], w_drift[mask]), 4),
+            "mean_turnover_per_rebalance": round(mean_rebalance_turnover(result.binding_constraints_history[config], period), 4),
             "concentration_hhi": round(herfindahl_concentration(w[mask]), 4),
         })
     return pd.DataFrame(rows).set_index("config")

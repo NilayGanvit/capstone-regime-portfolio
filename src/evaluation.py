@@ -132,6 +132,18 @@ def average_turnover(weights: np.ndarray, drifted_weights: np.ndarray) -> float:
     return float(np.mean(np.sum(np.abs(weights - drifted_weights), axis=1)))
 
 
+def mean_rebalance_turnover(binding_history: list, dates) -> float:
+    """Mean gross (round-trip) turnover per rebalancing decision dated on
+    `dates`, measured at the decision close against the drifted holdings --
+    the same per-trade figures net_of_cost_returns charges fees on when the
+    trade executes. `binding_history` is one config's
+    WalkForwardResult.binding_constraints_history entry, dated by decision
+    like the binding-constraint counts. NaN if no decision falls on `dates`."""
+    dates = set(dates)
+    trades = [entry["turnover"] for entry in binding_history if entry["date"] in dates]
+    return float(np.mean(trades)) if trades else float("nan")
+
+
 
 def optimal_stationary_block_length(x: np.ndarray) -> float:
     """Estimate the optimal expected block length for the stationary bootstrap.
