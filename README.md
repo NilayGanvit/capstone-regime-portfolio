@@ -125,7 +125,7 @@ Results from these experiments should be interpreted with their documented valid
 | [`src/`](src/) | Data processing, regime estimation, predictive densities, reliability modeling, portfolio allocation, and evaluation |
 | [`scripts/`](scripts/) | Reference runs, robustness experiments, diagnostics, and verification utilities |
 | [`tests/`](tests/) | Unit, integration, solver, and portfolio-accounting tests |
-| [`data/raw/`](data/raw/) | Input folder for the ETF prices and risk-free rate (not tracked; see [Data](#data)) |
+| [`data/raw/`](data/raw/) | The frozen ETF prices and risk-free rate used by the reported runs (see [Data](#data)) |
 | [`outputs/`](outputs/) | Model results, diagnostics, robustness analyses, and archived outputs |
 | [`outputs/verification/m6_implementation/`](outputs/verification/m6_implementation/) | Turnover, transaction-cost, and return-attribution verification |
 | [`docs/`](docs/) | Methodology, experiment documentation, and verification records |
@@ -190,15 +190,17 @@ Running `scripts/run_real_data.py` rewrites those top-level files.
 
 ### Data
 
-The ten ETF price files are not tracked. They were downloaded from Yahoo Finance with `yfinance`
-on 2026-09-23 and are kept on the team's shared Drive (`Code/data/raw`). Copy `SPY.csv` ...
-`VNQ.csv` into `data/raw/` and check them against the SHA-256 hashes in
-`outputs/archive/m6_reference_run_6a6b12d/run_manifest.json`. A fresh download will not match,
-because Yahoo revises adjusted prices. Use the archived risk-free file (FRED DGS3MO):
+`data/raw/` holds the inputs of every reported run, so nothing else needs downloading:
 
-```bash
-cp outputs/archive/frozen_reference_5pct_bb46b63/data/risk_free_DGS3MO_daily.csv data/raw/
-```
+- `SPY.csv` ... `VNQ.csv`: daily adjusted close and adjusted open of the ten ETFs
+  (`Date, AdjClose, AdjOpen`, 4,893 days from 2007-04-11 to 2026-09-21), downloaded from Yahoo
+  Finance with `yfinance` on 2026-09-23;
+- `risk_free_DGS3MO_daily.csv`: the FRED DGS3MO series as the runs used it, identical to
+  `outputs/archive/frozen_reference_5pct_bb46b63/data/risk_free_DGS3MO_daily.csv`.
+
+Their SHA-256 hashes equal those recorded in
+`outputs/archive/m6_reference_run_6a6b12d/run_manifest.json`. A fresh download will not match,
+because Yahoo revises adjusted prices, so use these files rather than re-downloading.
 
 ### Environment
 
@@ -216,21 +218,24 @@ robustness checks and inference from the archived checkpoints) reproduces on any
 
 ### Running
 
+Run everything from this branch; no checkout is needed. Its `src/` and
+`scripts/run_real_data.py` differ from `6a6b12d` only in the summary table's turnover column
+(`tests/test_ten_seed_final_pipeline.py` checks this), and older commits do not contain
+`data/raw/`.
+
 ```bash
-git checkout 6a6b12d
-python scripts/run_real_data.py                                 # M6 reference run, about 15 minutes on Colab
-git checkout c1e59fa
+pytest tests/ -q
+python scripts/run_real_data.py                                         # M6 reference run, about 15 minutes on Colab
 python scripts/verification/run_ten_seed_final_pipeline.py --seed 123   # then --seed 0 ... --seed 9
 python scripts/verification/run_ten_seed_final_pipeline.py --merge
-git checkout 32a56f8
-python scripts/verification/run_quarterly_lstm_retraining.py   # about 2.5 hours on Colab
-git checkout 2452a05
-python scripts/run_robustness_checks.py                         # Appendix A.2-A.3, ERC only, any machine
+python scripts/verification/run_quarterly_lstm_retraining.py           # about 2.5 hours on Colab
+python scripts/run_robustness_checks.py                                 # Appendix A.2-A.3, ERC only, any machine
+python scripts/verification/reliability_and_solver_replay_figures.py   # Sections 4.1 and 4.6, any machine
 ```
 
-The robustness tables in Appendix A.2-A.3 were generated at `2452a05`, which has the corrected
-turnover column; running the script at `6a6b12d` gives the same values in every other column.
-The robustness CSVs committed at `6a6b12d` itself are older and predate the exact solver.
+The robustness tables in Appendix A.2-A.3 were generated at `2452a05`, the commit with the
+corrected turnover column. The robustness CSVs at `6a6b12d` are older and predate the exact
+solver.
 
 To check the reported LSTM returns without retraining, replay the archived networks:
 
@@ -257,6 +262,8 @@ python scripts/verification/check_replay_against_archive.py \
 | Table 5, turnover; Section 3.6, binding counts | `M6/real_data_binding_constraints_<config>.csv`: mean of `turnover`, and counts of the binding columns, over the 92 decisions | M6 reference run |
 | Table 6 | `M6/real_data_rq_stationary_bootstrap.csv` (return series: `real_data_rq_excess_returns_5bps.csv`) | M6 reference run |
 | Section 4.1, reliability path | `M6/real_data_pi_path.csv` | M6 reference run |
+| Section 4.1, log-score advantage and its correlation with blending | printed, from the walk-forward and the archive | `scripts/verification/reliability_and_solver_replay_figures.py` |
+| Section 4.6, seed-123 regime effect under SLSQP and the exact solver | `M6/real_data_rq_net_returns_5bps.csv` and `outputs/archive/frozen_reference_5pct_bb46b63/csv/real_data_rq_net_returns_5bps.csv` | `scripts/verification/reliability_and_solver_replay_figures.py` |
 | Section 4.4, DSR | `M6/real_data_dsr_sensitivity_grid.csv`, `outputs/trial_log.csv`, `outputs/trial_candidate_sharpes.csv` | M6 reference run |
 | Table 7 | `ten_seed_rq_distribution.csv`, `ten_seed_rq_per_seed.csv`, `ten_seed_averaged_rq.csv` in the ten-seed archive | `scripts/verification/run_ten_seed_final_pipeline.py` |
 | Section 5, exact-solver replay of the ten archived seeds | `outputs/ten_seed_corrected_bootstrap.csv` | `scripts/verification/ten_seed_corrected_bootstrap.py` |

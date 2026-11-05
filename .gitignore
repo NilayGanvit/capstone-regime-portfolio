@@ -5,9 +5,20 @@ venv/
 .venv/
 *.egg-info/
 
-# Real price data is not committed -- each collaborator pulls their own
-# copy into data/raw/ per README.md; only the synthetic-data smoke-test
-# outputs (checked in deliberately as evidence of temporary results) are
-# tracked.
+# Only the frozen inputs of the reported runs are tracked: the ten ETF
+# files downloaded on 2026-09-23 and the archived DGS3MO risk-free file,
+# whose SHA-256 hashes are in the M6 reference run's manifest. Anything
+# else placed in data/raw/ stays untracked.
 data/raw/*
 !data/raw/.gitkeep
+!data/raw/SPY.csv
+!data/raw/EFA.csv
+!data/raw/EEM.csv
+!data/raw/IEF.csv
+!data/raw/TLT.csv
+!data/raw/LQD.csv
+!data/raw/HYG.csv
+!data/raw/GLD.csv
+!data/raw/DBC.csv
+!data/raw/VNQ.csv
+!data/raw/risk_free_DGS3MO_daily.csv

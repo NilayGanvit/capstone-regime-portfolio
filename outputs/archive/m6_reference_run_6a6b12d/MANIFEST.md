@@ -13,6 +13,13 @@ The top-level `outputs/real_data_*.csv` files at commit 6a6b12d are **not** this
 outputs: the cost-sensitivity and bootstrap files there are the `colab_reference_run_9c17150`
 results. Cite the files in this directory.
 
+The `avg_turnover` column of `csv/real_data_summary.csv` is superseded: the code that wrote it
+drifted each day's weights with the previous day's return, so it averaged a daily figure that
+counted price drift as turnover (fixed after M6 in `acbe324` and `2452a05`). Report turnover
+as the mean of the `turnover` column of `csv/real_data_binding_constraints_<config>.csv`: gross
+turnover per monthly rebalancing decision over the 92 decisions, the figure transaction costs
+are charged on. The archived files themselves are unchanged.
+
 The 2019-01-02 through 2026-08-31 period (1,926 trading days) is an **exploratory
 historical walk-forward period**, not an independent holdout, because it was inspected
 during model development.
