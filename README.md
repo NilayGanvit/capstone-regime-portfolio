@@ -231,6 +231,7 @@ python scripts/verification/run_ten_seed_final_pipeline.py --merge
 python scripts/verification/run_quarterly_lstm_retraining.py           # about 2.5 hours on Colab
 python scripts/run_robustness_checks.py                                 # Appendix A.2-A.3, ERC only, any machine
 python scripts/verification/reliability_and_solver_replay_figures.py   # Sections 4.1 and 4.6, any machine
+python scripts/verification/budget_stability_table.py                  # Table 4 from the saved budgets, any machine; writes nothing
 ```
 
 The robustness tables in Appendix A.2-A.3 were generated at `2452a05`, the commit with the
@@ -254,7 +255,7 @@ python scripts/verification/check_replay_against_archive.py \
 | Report | File | Produced by |
 |:---|:---|:---|
 | Table 3, HMM refit cadence | `outputs/refit_cadence_solver_check_exact.csv` (the original SLSQP comparison: `refit_cadence_solver_check_slsqp.csv`, `refit_cadence_validation_comparison.csv`) | `scripts/verification/refit_cadence_solver_check.py` |
-| Table 4, LSTM budget stability | `outputs/bounded_softmax_u050_200epoch_vs_ordinary_softmax.csv` and `bounded_softmax_u050_200epoch_seed_stability_*.csv` | outputs only; the script is not in the repository |
+| Table 4, LSTM budget stability | `outputs/bounded_softmax_u050_200epoch_vs_ordinary_softmax.csv` and `bounded_softmax_u050_200epoch_seed_stability_*.csv` | the budgets were trained in a Colab notebook that is not in the repository; [`scripts/verification/budget_stability_table.py`](scripts/verification/budget_stability_table.py) recomputes the table from the saved budgets and checks it against these files |
 | Section 3.5, 2.5% versus 5% floor | `outputs/lstm_floor_solver_check.csv` | `scripts/verification/lstm_floor_solver_check.py` |
 | Section 3.3, SLSQP zero-weight dates | `outputs/erc_solver_audit.csv` | `scripts/verification/audit_erc_solver.py` |
 | Table 5, Sharpe and CAGR at 5/10/25 bps; Figure 4 | `M6/real_data_cost_sensitivity.csv` | M6 reference run |
